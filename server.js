@@ -397,6 +397,10 @@ const authenticateUser = (req, res, next) => {
 // // Call initialization (run once during server startup)
 // initializeFunctions().catch(err => console.error('Initialization error:', err));
 
+// Add root route
+app.get('/', (req, res) => {
+  res.json({ message: 'Welcome to the IT Admin Backend!' });
+});
 
 // Login route to authenticate users
 app.post("/login", async (req, res) => {
