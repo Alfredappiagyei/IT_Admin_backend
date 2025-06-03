@@ -1,3 +1,22 @@
+DB_USER=postgres
+DB_HOST=4.tcp.eu.ngrok.io
+DB_NAME=helpdesk
+DB_PASSWORD=android1
+DB_PORT=16836
+
+JWT_SECRET=myjwtsecretkey
+
+# # Add your public IP configuration
+# PUBLIC_IP=41.66.204.146
+# SERVER_HOST=0.0.0.0  # This allows binding to all network interfaces
+
+MAIN_SERVER_PORT=3001
+HELPDESK_API_PORT=8082
+
+RESEND_PASSWORD_API_KEY=re_DT9RHMYU_KisZzfT4cuUJMV7wFhY5LWAf # Resend API key
+RESEND_EMAIL_API_KEY = re_HVNvLUt2_Q73T6xxHo3mzBkvnXzWpyxci # Resend API key
+
+
 // Load environment variables from .env file
 require("dotenv").config();
 
