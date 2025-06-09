@@ -5,7 +5,6 @@ require("dotenv").config();
 const express = require("express");
 const admin = require("firebase-admin");
 const bodyParser = require("body-parser");
-const bodyParser = require("body-parser");
 const cors = require("cors");
 const { json } = require("body-parser");
 const md5 = require("md5");
