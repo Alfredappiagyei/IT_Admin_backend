@@ -998,13 +998,14 @@ app.post('/sendPushNotification', authenticateUser, async (req, res) => {
     if (tokens.length === 0) {
       return res.status(404).json({ message: 'No device tokens found' });
     }
-    const message = {
-      notification: { title, body },
-      data: { ticketId: ticketId ? ticketId.toString() : '' },
-      android: { priority: 'high' },
-      tokens,
-    };
-    const response = await admin.messaging().sendMulticast(message);
+ const message = {
+  notification: { title, body },
+  data: { ticketId: ticketId ? ticketId.toString() : '' },
+  android: { priority: 'high' },
+  tokens,
+};
+
+const response = await admin.messaging().sendEachForMulticast(message);
     await pool.query(
       'INSERT INTO notifications (message, created_at, user_id) VALUES ($1, $2, ANY($3))',
       [`${title}: ${body}`, new Date(), userIds]
