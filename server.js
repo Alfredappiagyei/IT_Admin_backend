@@ -24,13 +24,6 @@ const serviceAccount = require("./serviceAccountKey.json");
 admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),      
 });
-app.use(bodyParser.json());
-
-const serviceAccount = require("./serviceAccountKey.json");
-
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),      
-});
 
 // Set up PostgreSQL connection pool using environment variables
 const pool = new Pool({
