@@ -3,6 +3,8 @@ require("dotenv").config();
 
 // Import required modules
 const express = require("express");
+const admin = require("firebase-admin");
+const bodyParser = require("body-parser");
 const cors = require("cors");
 const { json } = require("body-parser");
 const md5 = require("md5");
@@ -14,6 +16,13 @@ const crypto = require("crypto");
 
 // Initialize Express app
 const app = express();
+app.use(bodyParser.json());
+
+const serviceAccount = require("./serviceAccountKey.json");
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),      
+});
 
 // Set up PostgreSQL connection pool using environment variables
 const pool = new Pool({
@@ -435,6 +444,9 @@ app.post("/login", async (req, res) => {
         res.status(500).json({ message: "Server error" });
     }
 });
+
+
+
 
 // Route to fetch user profile (requires authentication)
 app.get("/user/profile", authenticateUser, async (req, res) => {
@@ -970,6 +982,30 @@ app.get("/notifications", authenticateUser, async (req, res) => {
         console.error("Error fetching notifications:", error);
         res.status(500).json({ message: "Error fetching notifications" });
     }
+});
+
+app.post('/sendPushNotification', async (req, res) => {
+  const { token, title, body } = req.body;
+
+  const message = {
+    token,
+    notification: {
+      title,
+      body
+    },
+    android: {
+      priority: "high"
+    }
+  };
+
+  try {
+    const response = await admin.messaging().send(message);
+    console.log('Successfully sent:', response);
+    res.status(200).send("Success");
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).send("Error");
+  }
 });
 
 // Route to fetch department-wise ticket counts (admin)
@@ -2550,7 +2586,7 @@ app.use((err, req, res, next) => {
 });
 
 // Start server on specified port (default 3001)
-const port = process.env.MAIN_SERVER_PORT || 3001;
+const port = process.env.PORT || 3001;
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
