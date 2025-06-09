@@ -1006,10 +1006,13 @@ app.post('/sendPushNotification', authenticateUser, async (req, res) => {
 };
 
 const response = await admin.messaging().sendEachForMulticast(message);
-    await pool.query(
-      'INSERT INTO notifications (message, created_at, user_id) VALUES ($1, $2, ANY($3))',
-      [`${title}: ${body}`, new Date(), userIds]
-    );
+    const insertPromises = userIds.map(userId =>
+  pool.query(
+    'INSERT INTO notifications (message, created_at, user_id) VALUES ($1, $2, $3)',
+    [`${title}: ${body}`, new Date(), userId]
+  )
+);
+await Promise.all(insertPromises);
     res.status(200).json({ message: 'Notifications sent successfully', response });
   } catch (error) {
     console.error('Error sending notifications:', error);
