@@ -5,6 +5,8 @@ require("dotenv").config();
 const express = require("express");
 const admin = require("firebase-admin");
 const bodyParser = require("body-parser");
+const admin = require("firebase-admin");
+const bodyParser = require("body-parser");
 const cors = require("cors");
 const { json } = require("body-parser");
 const md5 = require("md5");
@@ -16,6 +18,13 @@ const crypto = require("crypto");
 
 // Initialize Express app
 const app = express();
+app.use(bodyParser.json());
+
+const serviceAccount = require("./serviceAccountKey.json");
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),      
+});
 app.use(bodyParser.json());
 
 const serviceAccount = require("./serviceAccountKey.json");
