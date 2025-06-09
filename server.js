@@ -3,6 +3,8 @@ require("dotenv").config();
 
 // Import required modules
 const express = require("express");
+const admin = require("firebase-admin");
+const bodyParser = require("body-parser");
 const cors = require("cors");
 const { json } = require("body-parser");
 const md5 = require("md5");
@@ -14,6 +16,13 @@ const crypto = require("crypto");
 
 // Initialize Express app
 const app = express();
+app.use(bodyParser.json());
+
+const serviceAccount = require("./serviceAccountKey.json");
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),      
+});
 
 // Set up PostgreSQL connection pool using environment variables
 const pool = new Pool({
@@ -971,6 +980,31 @@ app.get("/notifications", authenticateUser, async (req, res) => {
         res.status(500).json({ message: "Error fetching notifications" });
     }
 });
+
+app.post('/sendPushNotification', async (req, res) => {
+  const { token, title, body } = req.body;
+
+  const message = {
+    token,
+    notification: {
+      title,
+      body
+    },
+    android: {
+      priority: "high"
+    }
+  };
+
+  try {
+    const response = await admin.messaging().send(message);
+    console.log('Successfully sent:', response);
+    res.status(200).send("Success");
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).send("Error");
+  }
+});
+
 
 // Route to fetch department-wise ticket counts (admin)
 app.get("/tickets/department-counts-admin", authenticateUser, async (req, res) => {
