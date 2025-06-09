@@ -19,6 +19,7 @@ const app = express();
 app.use(bodyParser.json());
 
 
+ 
 const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -984,6 +985,7 @@ app.get("/notifications", authenticateUser, async (req, res) => {
     }
 });
 
+ 
 app.post('/sendPushNotification', authenticateUser, async (req, res) => {
   const { userIds, ticketId, title, body } = req.body;
   if (!userIds || !Array.isArray(userIds) || !title || !body) {
@@ -1030,6 +1032,7 @@ app.post('/save-device-token', authenticateUser, async (req, res) => {
   } catch (error) {
     console.error('Error saving device token:', error);
     return res.status(500).json({ message: 'Error saving device token', error: error.message });
+ 
   }
 });
 
