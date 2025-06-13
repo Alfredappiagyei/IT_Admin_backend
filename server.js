@@ -1,24 +1,27 @@
 // Load environment variables from .env file
-require("dotenv").config();
+import dotenv from "dotenv";
+dotenv.config();
 
 // Import required modules
-const express = require("express");
-const admin = require("firebase-admin");
-const bodyParser = require("body-parser");
-const cors = require("cors");
-const { json } = require("body-parser");
-const md5 = require("md5");
-const { verify, sign } = require("jsonwebtoken");
-const { Pool } = require("pg");
-const { v4: uuidv4 } = require("uuid");
-const { Resend } = require("resend"); // Correct import for resend@4.4.0
-const crypto = require("crypto");
+import express from "express";
+import admin from "firebase-admin";
+import bodyParser from "body-parser";
+import cors from "cors";
+import md5 from "md5";
+import jwt from "jsonwebtoken";
+import pkg from "pg";
+const { Pool } = pkg;
+import { v4 as uuidv4 } from "uuid";
+import { Resend } from "resend";
+import crypto from "crypto";
 import { sendPushNotification } from './SendNotification.js'; // Import the push notification function
 
+const { verify, sign } = jwt;
 
 // Initialize Express app
 const app = express();
 app.use(bodyParser.json());
+app.use(cors());
 
 // Store tokens in memory (use a database in production)
 let pushTokens = [];
