@@ -4,7 +4,6 @@ import express, { json } from "express";
 dotenv.config();
 
 // Import required modules
-import express from "express";
 import admin from "firebase-admin";
 import bodyParser from "body-parser";
 import cors from "cors";
