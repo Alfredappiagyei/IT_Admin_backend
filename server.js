@@ -13,12 +13,15 @@ const { Pool } = require("pg");
 const { v4: uuidv4 } = require("uuid");
 const { Resend } = require("resend"); // Correct import for resend@4.4.0
 const crypto = require("crypto");
+import { sendPushNotification } from './src/utils/sendNotification.js';
+
 
 // Initialize Express app
 const app = express();
 app.use(bodyParser.json());
 
-
+// Store tokens in memory (use a database in production)
+let pushTokens = [];
  
 const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 admin.initializeApp({
@@ -968,75 +971,101 @@ app.post('/submit-ticket', async (req, res) => {
     }
 });
 
-// Route to fetch recent notifications
-app.get("/notifications", authenticateUser, async (req, res) => {
-    try {
-        const query = `
-            SELECT message, created_at
-            FROM notifications
-            ORDER BY created_at DESC
-            LIMIT 10;
-        `;
-        const result = await pool.query(query);
-        res.json(result.rows);
-    } catch (error) {
-        console.error("Error fetching notifications:", error);
-        res.status(500).json({ message: "Error fetching notifications" });
-    }
+// // Route to fetch recent notifications
+// app.get("/notifications", authenticateUser, async (req, res) => {
+//     try {
+//         const query = `
+//             SELECT message, created_at
+//             FROM notifications
+//             ORDER BY created_at DESC
+//             LIMIT 10;
+//         `;
+//         const result = await pool.query(query);
+//         res.json(result.rows);
+//     } catch (error) {
+//         console.error("Error fetching notifications:", error);
+//         res.status(500).json({ message: "Error fetching notifications" });
+//     }
+// });
+
+// app.post('/sendPushNotification', authenticateUser, async (req, res) => {
+//   const { userIds, ticketId, title, body } = req.body;
+//   if (!userIds || !Array.isArray(userIds) || !title || !body) {
+//     return res.status(400).json({ message: 'Missing required fields: userIds, title, body' });
+//   }
+//   try {
+//     const query = 'SELECT device_token FROM device_tokens WHERE user_id = ANY($1)';
+//     const result = await pool.query(query, [userIds]);
+//     const tokens = result.rows.map(row => row.device_token);
+//     if (tokens.length === 0) {
+//       return res.status(404).json({ message: 'No device tokens found' });
+//     }
+//  const message = {
+//   notification: { title, body },
+//   data: { ticketId: ticketId ? ticketId.toString() : '' },
+//   android: { priority: 'high' },
+//   tokens,
+// };
+
+// const response = await admin.messaging().sendEachForMulticast(message);
+//     const insertPromises = userIds.map(userId =>
+//   pool.query(
+//     'INSERT INTO notifications (message, created_at, user_id) VALUES ($1, $2, $3)',
+//     [`${title}: ${body}`, new Date(), userId]
+//   )
+// );
+// await Promise.all(insertPromises);
+//     res.status(200).json({ message: 'Notifications sent successfully', response });
+//   } catch (error) {
+//     console.error('Error sending notifications:', error);
+//     res.status(500).json({ message: 'Error sending notifications', error: error.message });
+//   }
+// });
+
+// app.post('/save-device-token', authenticateUser, async (req, res) => {
+//   const { deviceToken } = req.body;
+//   const userId = req.userId;
+//   if (!deviceToken || typeof deviceToken !== 'string') {
+//     return res.status(400).json({ message: 'Invalid device token' });
+//   }
+//   try {
+//     const query = 'SELECT update_device_token($1, $2) AS result';
+//     const result = await pool.query(query, [userId, deviceToken]);
+//     if (result.rows[0].result) {
+//       return res.status(200).json({ message: 'Device token saved successfully' });
+//     }
+//     return res.status(500).json({ message: 'Failed to save device token' });
+//   } catch (error) {
+//     console.error('Error saving device token:', error);
+//     return res.status(500).json({ message: 'Error saving device token', error: error.message });
+ 
+//   }
+// });
+
+// Endpoint to register push token
+app.post('/register', (req, res) => {
+  const { token } = req.body;
+  if (token && !pushTokens.includes(token)) {
+    pushTokens.push(token);
+    console.log('Registered push token:', token);
+  }
+  res.send('Token registered');
 });
 
- 
-app.post('/sendPushNotification', authenticateUser, async (req, res) => {
-  const { userIds, ticketId, title, body } = req.body;
-  if (!userIds || !Array.isArray(userIds) || !title || !body) {
-    return res.status(400).json({ message: 'Missing required fields: userIds, title, body' });
-  }
-  try {
-    const query = 'SELECT device_token FROM device_tokens WHERE user_id = ANY($1)';
-    const result = await pool.query(query, [userIds]);
-    const tokens = result.rows.map(row => row.device_token);
-    if (tokens.length === 0) {
-      return res.status(404).json({ message: 'No device tokens found' });
-    }
- const message = {
-  notification: { title, body },
-  data: { ticketId: ticketId ? ticketId.toString() : '' },
-  android: { priority: 'high' },
-  tokens,
-};
+// Endpoint to send test notification
+app.post('/send-notification', async (req, res) => {
+  const { title = 'Test Notification', body = 'This is a test notification' } = req.body;
 
-const response = await admin.messaging().sendEachForMulticast(message);
-    const insertPromises = userIds.map(userId =>
-  pool.query(
-    'INSERT INTO notifications (message, created_at, user_id) VALUES ($1, $2, $3)',
-    [`${title}: ${body}`, new Date(), userId]
-  )
-);
-await Promise.all(insertPromises);
-    res.status(200).json({ message: 'Notifications sent successfully', response });
+  if (pushTokens.length === 0) {
+    return res.status(400).send('No push tokens registered');
+  }
+
+  try {
+    await sendPushNotification(pushTokens, title, body, { customData: 'test' });
+    res.send('Notifications sent successfully');
   } catch (error) {
     console.error('Error sending notifications:', error);
-    res.status(500).json({ message: 'Error sending notifications', error: error.message });
-  }
-});
-
-app.post('/save-device-token', authenticateUser, async (req, res) => {
-  const { deviceToken } = req.body;
-  const userId = req.userId;
-  if (!deviceToken || typeof deviceToken !== 'string') {
-    return res.status(400).json({ message: 'Invalid device token' });
-  }
-  try {
-    const query = 'SELECT update_device_token($1, $2) AS result';
-    const result = await pool.query(query, [userId, deviceToken]);
-    if (result.rows[0].result) {
-      return res.status(200).json({ message: 'Device token saved successfully' });
-    }
-    return res.status(500).json({ message: 'Failed to save device token' });
-  } catch (error) {
-    console.error('Error saving device token:', error);
-    return res.status(500).json({ message: 'Error saving device token', error: error.message });
- 
+    res.status(500).send('Failed to send notifications');
   }
 });
 
