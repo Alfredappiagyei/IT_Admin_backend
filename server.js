@@ -13,7 +13,7 @@ const { Pool } = require("pg");
 const { v4: uuidv4 } = require("uuid");
 const { Resend } = require("resend"); // Correct import for resend@4.4.0
 const crypto = require("crypto");
-import { sendPushNotification } from './src/utils/sendNotification.js';
+import { sendPushNotification } from './SendNotification.js'; // Import the push notification function
 
 
 // Initialize Express app
