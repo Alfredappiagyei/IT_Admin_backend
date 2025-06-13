@@ -1,8 +1,7 @@
-{
+ {
   "name": "it-admin-backend",
   "version": "1.0.0",
-  "main": "index.js",
-  "type": "module",
+  "main": "server.js",
   "license": "MIT",
   "dependencies": {
     "body-parser": "^2.2.0",

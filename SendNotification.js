@@ -1,7 +1,7 @@
-import { Expo } from 'expo-server-sdk';
+const { Expo } = require("expo-server-sdk");
 
 // Initialize Expo SDK client
-const expo = new Expo({
+let expo = new Expo({
   accessToken: process.env.EXPO_ACCESS_TOKEN, // Optional, set in .env if push security is enabled
   useFcmV1: true, // Use FCM v1 (default)
 });
