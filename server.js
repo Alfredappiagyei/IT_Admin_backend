@@ -1011,15 +1011,15 @@ app.post('/save-device-token', authenticateUser, async (req, res) => {
     }
 });
 
-// // Endpoint to register push token
-// app.post('/register', (req, res) => {
-//   const { token } = req.body;
-//   if (token && !pushTokens.includes(token)) {
-//     pushTokens.push(token);
-//     console.log('Registered push token:', token);
-//   }
-//   res.send('Token registered');
-// });
+// Endpoint to register push token
+app.post('/register', (req, res) => {
+  const { token } = req.body;
+  if (token && !pushTokens.includes(token)) {
+    pushTokens.push(token);
+    console.log('Registered push token:', token);
+  }
+  res.send('Token registered');
+});
 
 // Route to send push notifications to specific users
 app.post('/send-notification', authenticateUser, async (req, res) => {
