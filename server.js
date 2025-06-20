@@ -1011,15 +1011,137 @@ app.post('/save-device-token', authenticateUser, async (req, res) => {
     }
 });
 
-// Endpoint to register push token
-app.post('/register', (req, res) => {
-  const { token } = req.body;
-  if (token && !pushTokens.includes(token)) {
-    pushTokens.push(token);
-    console.log('Registered push token:', token);
-  }
-  res.send('Token registered');
-});
+// // Endpoint to register push token
+// app.post('/register', (req, res) => {
+//   const { token } = req.body;
+//   if (token && !pushTokens.includes(token)) {
+//     pushTokens.push(token);
+//     console.log('Registered push token:', token);
+//   }
+//   res.send('Token registered');
+// });
+
+// Unified endpoint to register or update push token
+app.post('/register', async (req, res) => {
+    try {
+      const { token, user_id } = req.body;
+      
+      // Validate input
+      if (!token) {
+        return res.status(400).json({ 
+          error: 'Push token is required' 
+        });
+      }
+      
+      if (!user_id) {
+        return res.status(400).json({ 
+          error: 'User ID is required' 
+        });
+      }
+  
+      // Check if user already has a token registered
+      const existingToken = await db.query(
+        'SELECT id, device_token FROM device_tokens WHERE user_id = ?',
+        [user_id]
+      );
+  
+      if (existingToken.length > 0) {
+        const existingRecord = existingToken[0];
+        
+        // If token is the same, no need to update
+        if (existingRecord.device_token === token) {
+          console.log('Push token already up-to-date for user:', user_id);
+          return res.json({ 
+            message: 'Token already registered and up-to-date',
+            token_id: existingRecord.id,
+            action: 'no_change'
+          });
+        }
+        
+        // Update existing token
+        await db.query(
+          'UPDATE device_tokens SET device_token = ?, updated_at = NOW() WHERE user_id = ?',
+          [token, user_id]
+        );
+        
+        console.log('Updated push token for user:', user_id, 'Token ID:', existingRecord.id);
+        return res.json({ 
+          message: 'Token updated successfully',
+          token_id: existingRecord.id,
+          action: 'updated'
+        });
+      }
+  
+      // Insert new token if user doesn't have one
+      const result = await db.query(
+        'INSERT INTO device_tokens (device_token, user_id, created_at) VALUES (?, ?, NOW())',
+        [token, user_id]
+      );
+  
+      console.log('Registered new push token for user:', user_id, 'Token ID:', result.insertId);
+      
+      res.status(201).json({ 
+        message: 'Token registered successfully',
+        token_id: result.insertId,
+        action: 'created'
+      });
+  
+    } catch (error) {
+      console.error('Error processing push token:', error);
+      res.status(500).json({ 
+        error: 'Failed to process token' 
+      });
+    }
+  });
+  
+  // Alternative approach using MySQL's ON DUPLICATE KEY UPDATE (if you have a unique constraint)
+  /*
+  app.post('/register', async (req, res) => {
+    try {
+      const { token, user_id } = req.body;
+      
+      // Validate input
+      if (!token) {
+        return res.status(400).json({ 
+          error: 'Push token is required' 
+        });
+      }
+      
+      if (!user_id) {
+        return res.status(400).json({ 
+          error: 'User ID is required' 
+        });
+      }
+  
+      // Use INSERT ... ON DUPLICATE KEY UPDATE for MySQL
+      // This requires a UNIQUE constraint on user_id column
+      const result = await db.query(`
+        INSERT INTO device_tokens (device_token, user_id, created_at) 
+        VALUES (?, ?, NOW())
+        ON DUPLICATE KEY UPDATE 
+          device_token = VALUES(device_token),
+          updated_at = NOW()
+      `, [token, user_id]);
+  
+      const action = result.affectedRows === 1 ? 'created' : 'updated';
+      const token_id = result.insertId || result.insertId;
+      
+      console.log(`${action} push token for user:`, user_id);
+      
+      res.status(action === 'created' ? 201 : 200).json({ 
+        message: `Token ${action} successfully`,
+        token_id: token_id,
+        action: action
+      });
+  
+    } catch (error) {
+      console.error('Error processing push token:', error);
+      res.status(500).json({ 
+        error: 'Failed to process token' 
+      });
+    }
+  });
+  */
 
 // Route to send push notifications to specific users
 app.post('/send-notification', authenticateUser, async (req, res) => {
