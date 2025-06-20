@@ -193,6 +193,26 @@ const authenticateUser = (req, res, next) => {
     }
 };
 
+// Helper function to send notifications to specific users
+const notifyUsers = async (userIds, title, body, data = {}) => {
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+        console.log('No user IDs provided for notification');
+        return;
+    }
+    try {
+        const query = 'SELECT device_token FROM device_tokens WHERE user_id = ANY($1)';
+        const result = await pool.query(query, [userIds]);
+        const tokens = result.rows.map(row => row.device_token);
+        if (tokens.length === 0) {
+            console.log('No device tokens found for users:', userIds);
+            return;
+        }
+        await sendPushNotification(tokens, title, body, data);
+        console.log('Notifications sent to users:', userIds);
+    } catch (error) {
+        console.error('Error sending notifications to users:', userIds, error.message);
+    }
+};
 
 // // Function to get all checklist records
 // const createGetRecordsFunction = async () => {
@@ -808,23 +828,16 @@ app.get("/tickets/trends", authenticateUser, async (req, res) => {
 // Route to submit a new ticket
 app.post('/submit-ticket', async (req, res) => {
     const { name, division, phoneNumber, office, priority, subject, details, staffId, regionId } = req.body;
-
-    // Validate required fields
     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details) {
         return res.status(400).json({ success: false, message: 'All fields are required' });
     }
-
-    // Validate staffId and regionId if provided
     if (staffId && typeof staffId !== 'string') {
         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
     }
-    
     if (regionId && (!Number.isInteger(regionId) || regionId <= 0)) {
         return res.status(400).json({ success: false, message: 'Region ID must be a positive integer' });
     }
-
     try {
-        // Apply authenticateUser middleware conditionally to allow unauthenticated access
         let userId = null;
         if (req.headers.authorization) {
             try {
@@ -832,60 +845,19 @@ app.post('/submit-ticket', async (req, res) => {
                 if (authHeader.startsWith('Bearer ')) {
                     const token = authHeader.split(' ')[1];
                     const decoded = verify(token, process.env.JWT_SECRET);
-                    userId = decoded.userId; // Set userId if authenticated
+                    userId = decoded.userId;
                 }
             } catch (error) {
                 console.warn('Authentication attempt failed, proceeding as unauthenticated:', error.message);
-                // Continue without userId if token is invalid or expired
             }
         }
-
-        // Default region_id for Greater Accra Region if not provided
-        const defaultRegionId = 1; // Assuming Greater Accra Region has ID 1
+        const defaultRegionId = 1;
         const finalRegionId = regionId || defaultRegionId;
-
         const ticketDetails = {
-            staff_id: staffId || null, // Use provided staffId or null
-            region_id:
-            regionId === 'greater_accra'
-            ? 1
-            : regionId === 'ashanti'
-            ? 2
-            : regionId === 'western'
-            ? 3
-            : regionId === 'eastern'
-            ? 4
-            : regionId === 'central'
-            ? 5
-            : regionId === 'volta'
-            ? 6
-            : regionId === 'northern'
-            ? 7
-            : regionId === 'upper_east'
-            ? 8
-            : regionId === 'upper_west'
-            ? 9
-            : 1,
-            division_id:
-                division === 'lvd'
-                    ? 1
-                    : division === 'pvlmd'
-                    ? 2
-                    : division === 'lrd'
-                    ? 3
-                    : division === 'smd'
-                    ? 4
-                    : division === 'corporate'
-                    ? 5
-                    : 5,
-            priority_id:
-                priority === 'urgent'
-                    ? 1
-                    : priority === 'high'
-                    ? 2
-                    : priority === 'medium'
-                    ? 3
-                    : 4,
+            staff_id: staffId || null,
+            region_id: regionId === 'greater_accra' ? 1 : regionId === 'ashanti' ? 2 : regionId === 'western' ? 3 : regionId === 'eastern' ? 4 : regionId === 'central' ? 5 : regionId === 'volta' ? 6 : regionId === 'northern' ? 7 : regionId === 'upper_east' ? 8 : regionId === 'upper_west' ? 9 : 1,
+            division_id: division === 'lvd' ? 1 : division === 'pvlmd' ? 2 : division === 'lrd' ? 3 : division === 'smd' ? 4 : division === 'corporate' ? 5 : 5,
+            priority_id: priority === 'urgent' ? 1 : priority === 'high' ? 2 : priority === 'medium' ? 3 : 4,
             is_assigned: 0,
             assigned_userid: null,
             date_assigned: 'N/A',
@@ -895,28 +867,21 @@ app.post('/submit-ticket', async (req, res) => {
             complainant_name: name,
             complainant_number: phoneNumber,
             complainant_office: office,
-            status_id: 1, // Status ID for Open
-            open_id: userId, // Set to userId if authenticated, null otherwise
+            status_id: 1,
+            open_id: userId,
             pin: Math.floor(1000 + Math.random() * 9000),
             created_by: name,
             date_created: new Date().toISOString(),
         };
-
-        // Stringify the JSON object for the PostgreSQL function
         const jsonTicketDetails = JSON.stringify(ticketDetails);
         const query = `SELECT public.ticket_insert($1::text) AS result;`;
         console.log('Submitting ticket with JSON:', jsonTicketDetails);
-
-        // Execute the ticket_insert function
         const result = await pool.query(query, [jsonTicketDetails]);
         const insertResult = result.rows[0].result;
-
         if (insertResult) {
-            // Verify the ticket was inserted by querying the tickets table
             let verifyQuery;
             let verifyParams;
             if (userId) {
-                // Authenticated user: verify using open_id
                 verifyQuery = `
                     SELECT code
                     FROM public.tickets
@@ -927,7 +892,6 @@ app.post('/submit-ticket', async (req, res) => {
                 `;
                 verifyParams = [userId, ticketDetails.date_created, ticketDetails.subject];
             } else {
-                // Unauthenticated user: verify using open_id IS NULL and created_by
                 verifyQuery = `
                     SELECT code
                     FROM public.tickets
@@ -939,12 +903,14 @@ app.post('/submit-ticket', async (req, res) => {
                 `;
                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
             }
-
             const verifyResult = await pool.query(verifyQuery, verifyParams);
-
             if (verifyResult.rows.length > 0) {
                 const ticketCode = verifyResult.rows[0].code;
                 console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
+                // Notify ticket creator if authenticated
+                if (userId) {
+                    await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
+                }
                 return res.status(201).json({
                     success: true,
                     message: 'Ticket submitted successfully',
@@ -1025,51 +991,63 @@ app.post('/submit-ticket', async (req, res) => {
 //   }
 // });
 
-// app.post('/save-device-token', authenticateUser, async (req, res) => {
-//   const { deviceToken } = req.body;
-//   const userId = req.userId;
-//   if (!deviceToken || typeof deviceToken !== 'string') {
-//     return res.status(400).json({ message: 'Invalid device token' });
-//   }
-//   try {
-//     const query = 'SELECT update_device_token($1, $2) AS result';
-//     const result = await pool.query(query, [userId, deviceToken]);
-//     if (result.rows[0].result) {
-//       return res.status(200).json({ message: 'Device token saved successfully' });
-//     }
-//     return res.status(500).json({ message: 'Failed to save device token' });
-//   } catch (error) {
-//     console.error('Error saving device token:', error);
-//     return res.status(500).json({ message: 'Error saving device token', error: error.message });
- 
-//   }
-// });
-
-// Endpoint to register push token
-app.post('/register', (req, res) => {
-  const { token } = req.body;
-  if (token && !pushTokens.includes(token)) {
-    pushTokens.push(token);
-    console.log('Registered push token:', token);
-  }
-  res.send('Token registered');
+// Route to save device token
+app.post('/save-device-token', authenticateUser, async (req, res) => {
+    const { deviceToken } = req.body;
+    const userId = req.userId;
+    if (!deviceToken || typeof deviceToken !== 'string') {
+        return res.status(400).json({ message: 'Invalid device token' });
+    }
+    try {
+        const query = 'SELECT update_device_token($1, $2) AS result';
+        const result = await pool.query(query, [userId, deviceToken]);
+        if (result.rows[0].result) {
+            return res.status(200).json({ message: 'Device token saved successfully' });
+        }
+        return res.status(500).json({ message: 'Failed to save device token' });
+    } catch (error) {
+        console.error('Error saving device token:', error);
+        return res.status(500).json({ message: 'Error saving device token', error: error.message });
+    }
 });
 
-// Endpoint to send test notification
-app.post('/send-notification', async (req, res) => {
-  const { title = 'Test Notification', body = 'This is a test notification' } = req.body;
+// // Endpoint to register push token
+// app.post('/register', (req, res) => {
+//   const { token } = req.body;
+//   if (token && !pushTokens.includes(token)) {
+//     pushTokens.push(token);
+//     console.log('Registered push token:', token);
+//   }
+//   res.send('Token registered');
+// });
 
-  if (pushTokens.length === 0) {
-    return res.status(400).send('No push tokens registered');
-  }
-
-  try {
-    await sendPushNotification(pushTokens, title, body, { customData: 'test' });
-    res.send('Notifications sent successfully');
-  } catch (error) {
-    console.error('Error sending notifications:', error);
-    res.status(500).send('Failed to send notifications');
-  }
+// Route to send push notifications to specific users
+app.post('/send-notification', authenticateUser, async (req, res) => {
+    const { userIds, title, body, ticketId } = req.body;
+    if (!userIds || !Array.isArray(userIds) || !title || !body) {
+        return res.status(400).json({ message: 'Missing required fields: userIds, title, body' });
+    }
+    try {
+        const query = 'SELECT device_token FROM device_tokens WHERE user_id = ANY($1)';
+        const result = await pool.query(query, [userIds]);
+        const tokens = result.rows.map(row => row.device_token);
+        if (tokens.length === 0) {
+            return res.status(404).json({ message: 'No device tokens found for specified users' });
+        }
+        const data = ticketId ? { ticketId: ticketId.toString() } : {};
+        await sendPushNotification(tokens, title, body, data);
+        const insertPromises = userIds.map(userId =>
+            pool.query(
+                'INSERT INTO notifications (message, created_at, user_id) VALUES ($1, $2, $3)',
+                [`${title}: ${body}`, new Date(), userId]
+            )
+        );
+        await Promise.all(insertPromises);
+        res.status(200).json({ message: 'Notifications sent successfully' });
+    } catch (error) {
+        console.error('Error sending notifications:', error);
+        res.status(500).json({ message: 'Error sending notifications', error: error.message });
+    }
 });
 
 // Route to fetch department-wise ticket counts (admin)
@@ -1427,13 +1405,10 @@ app.get("/tickets/status-details/:statusId", authenticateUser, async (req, res) 
 // Status assignment user section
 app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
     const client = await pool.connect();
-
     try {
         const updatingUserId = req.userId;
         const ticketCode = req.params.code;
         const { status } = req.body;
-
-        // Enhanced validation
         if (!status || typeof status !== 'string' || status.trim() === '') {
             return res.status(400).json({
                 success: false,
@@ -1444,11 +1419,7 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
                 }
             });
         }
-
-        // Begin transaction
         await client.query('BEGIN');
-
-        // Get status information with case-insensitive comparison
         const statusQuery = await client.query(
             `SELECT id, status_name 
              FROM status 
@@ -1456,7 +1427,6 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
              AND LOWER(status_name) IN ('on hold', 'solved')`,
             [status.trim()]
         );
-
         if (statusQuery.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(400).json({
@@ -1469,19 +1439,15 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
                 }
             });
         }
-
         const statusId = statusQuery.rows[0].id;
         const statusName = statusQuery.rows[0].status_name;
-
-        // Update ticket status
         const updateTicketQuery = await client.query(
             `UPDATE tickets
              SET status_id = $1
              WHERE code = $2
-             RETURNING id, code, status_id`,
+             RETURNING id, code, status_id, open_id, assigned_userid`,
             [statusId, ticketCode]
         );
-
         if (updateTicketQuery.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({
@@ -1492,22 +1458,25 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
                 }
             });
         }
-
-        // Create note with predefined values
         const noteDetails = {
             note: statusName.toLowerCase() === 'on hold' ? 'paused' : 'completed',
             user_id: updatingUserId,
             note_date: new Date().toISOString()
         };
-
         await client.query(
             `INSERT INTO note(ticket_id, note, user_id, date_created)
              VALUES ($1, $2, $3, $4)`,
             [updateTicketQuery.rows[0].id, noteDetails.note, noteDetails.user_id, noteDetails.note_date]
         );
-
         await client.query('COMMIT');
-
+        // Notify creator and assigned user
+        const { open_id, assigned_userid } = updateTicketQuery.rows[0];
+        const userIds = [];
+        if (open_id) userIds.push(open_id);
+        if (assigned_userid) userIds.push(assigned_userid);
+        if (userIds.length > 0) {
+            await notifyUsers(userIds, 'Ticket Status Updated', `Ticket ${ticketCode} status changed to ${statusName}.`, { ticketId: ticketCode });
+        }
         res.status(200).json({
             success: true,
             message: `Ticket status updated to ${statusName} successfully`,
@@ -1515,7 +1484,6 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
             newStatus: statusName,
             noteCreated: true
         });
-
     } catch (error) {
         await client.query('ROLLBACK');
         console.error("Ticket Status Update Error:", error);
@@ -1532,13 +1500,10 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
 // Status Assignment admin
 app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
     const client = await pool.connect();
-
     try {
         const updatingUserId = req.userId;
         const ticketCode = req.params.code;
         const { status } = req.body;
-
-        // Enhanced validation
         if (!status || typeof status !== 'string' || status.trim() === '') {
             return res.status(400).json({
                 success: false,
@@ -1549,12 +1514,7 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
                 }
             });
         }
-
-        // Begin transaction
         await client.query('BEGIN');
-
-        // Get status information with case-insensitive comparison
-        // Maintaining all admin status options
         const statusQuery = await client.query(
             `SELECT id, status_name 
              FROM status 
@@ -1562,7 +1522,6 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
              AND LOWER(status_name) IN ('on hold', 'solved', 'open', 'pending', 'closed')`,
             [status.trim()]
         );
-
         if (statusQuery.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(400).json({
@@ -1575,19 +1534,15 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
                 }
             });
         }
-
         const statusId = statusQuery.rows[0].id;
         const statusName = statusQuery.rows[0].status_name;
-
-        // Update ticket status with additional admin fields if needed
         const updateTicketQuery = await client.query(
             `UPDATE tickets
              SET status_id = $1
              WHERE code = $2
-             RETURNING id, code, status_id`,
+             RETURNING id, code, status_id, open_id, assigned_userid`,
             [statusId, ticketCode]
         );
-
         if (updateTicketQuery.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({
@@ -1598,31 +1553,33 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
                 }
             });
         }
-
-        // Create admin-specific note
         const noteDetails = {
             note: `Status changed to ${statusName} by admin`,
             user_id: updatingUserId,
             note_date: new Date().toISOString()
         };
-
         await client.query(
             `INSERT INTO note(ticket_id, note, user_id, date_created)
              VALUES ($1, $2, $3, $4)`,
             [updateTicketQuery.rows[0].id, noteDetails.note, noteDetails.user_id, noteDetails.note_date]
         );
-
         await client.query('COMMIT');
-
+        // Notify creator and assigned user
+        const { open_id, assigned_userid } = updateTicketQuery.rows[0];
+        const userIds = [];
+        if (open_id) userIds.push(open_id);
+        if (assigned_userid) userIds.push(assigned_userid);
+        if (userIds.length > 0) {
+            await notifyUsers(userIds, 'Ticket Status Updated', `Ticket ${ticketCode} status changed to ${statusName}.`, { ticketId: ticketCode });
+        }
         res.status(200).json({
             success: true,
             message: `Ticket status updated to ${statusName} successfully`,
             ticket: updateTicketQuery.rows[0],
             newStatus: statusName,
             noteCreated: true,
-            updatedBy: 'admin' // Additional admin-specific field
+            updatedBy: 'admin'
         });
-
     } catch (error) {
         await client.query('ROLLBACK');
         console.error("Admin Ticket Status Update Error:", {
@@ -1711,13 +1668,9 @@ app.post("/tickets/assign", authenticateUser, async (req, res) => {
             department_id,
             status_id
         } = req.body;
-
-        // Validate required fields
         if (!code || !priority_id || !assigned_userid || !department_id) {
             return res.status(400).json({ message: "Missing required fields: code, priority_id, assigned_userid, department_id" });
         }
-
-        // Prepare the ticket details for the database function
         const ticketDetails = {
             code,
             priority_id,
@@ -1727,17 +1680,14 @@ app.post("/tickets/assign", authenticateUser, async (req, res) => {
             status_id: status_id || 1,
             last_updated_by: assigningUserId,
         };
-
-        // Call the database function to assign the ticket
         const query = `
             SELECT re_assign_ticket($1::text) AS result;
         `;
         const result = await pool.query(query, [JSON.stringify(ticketDetails)]);
-
-        // Check the boolean result directly
         const assignmentResult = result.rows[0].result;
-
         if (assignmentResult === true) {
+            // Notify assigned user
+            await notifyUsers([assigned_userid], 'Ticket Assigned', `You have been assigned to ticket ${code}.`, { ticketId: code });
             res.status(200).json({
                 message: "Ticket assigned successfully",
                 ticket: { ...ticketDetails }
