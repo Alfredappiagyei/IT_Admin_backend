@@ -2806,27 +2806,84 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
     const functionResult = result.rows[0].result;
     console.log('Function returned:', functionResult);
     
-    if (functionResult.success) {
-      return res.json(functionResult);
-    } else {
-      return res.status(400).json(functionResult);
+     // Check if all categories are completed
+     if (functionResult.success) {
+        // 1. Get total number of categories
+        const categoriesResult = await client.query('SELECT COUNT(*) FROM categories');
+        const totalCategories = parseInt(categoriesResult.rows[0].count, 10);
+        
+        // 2. Get distinct categories submitted today for this location
+        const completedCategoriesResult = await client.query(
+          `SELECT COUNT(DISTINCT data->>'categoryName') 
+           FROM checklist_records 
+           WHERE location_id = $1 
+           AND user_id = $2
+           AND DATE(created_at) = CURRENT_DATE`,
+          [location_id, userId]
+        );
+        
+        const completedCategories = parseInt(completedCategoriesResult.rows[0].count, 10);
+        
+        // 3. Compare and send notification if all completed
+        if (completedCategories >= totalCategories) {
+          // NEW: Get location name
+          const locationResult = await client.query(
+            'SELECT name FROM locations WHERE location_id = $1',
+            [location_id]
+          );
+          
+          const locationName = locationResult.rows[0]?.name || `Location ${location_id}`;
+          
+          // Get user's device token
+          const tokenResult = await client.query(
+            'SELECT device_token FROM device_tokens WHERE user_id = $1',
+            [userId]
+          );
+          
+          if (tokenResult.rows.length > 0) {
+            const deviceToken = tokenResult.rows[0].device_token;
+            
+            // Notification with location name
+            await sendPushNotification(
+              [deviceToken],
+              'Checklist Completed',
+              `All daily checks completed for ${locationName}!`,
+              { 
+                locationId: location_id,
+                locationName: locationName
+              }
+            );
+            
+            // Also store a notification in the database with location name
+            await client.query(
+              'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+              [userId, `Completed all daily checks for ${locationName}`]
+            );
+            
+            console.log(`Notification sent for completed checks at ${locationName}`);
+          }
+        }
+      }
+      
+      await client.query('COMMIT');
+      
+      if (functionResult.success) {
+        return res.json(functionResult);
+      } else {
+        return res.status(400).json(functionResult);
+      }
+      
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Transaction error:', error);
+      return res.status(500).json({ 
+        error: 'Database error',
+        message: error.message 
+      });
+    } finally {
+      client.release();
     }
-    
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Transaction error:', {
-      error: error.message,
-      stack: error.stack
-    });
-    
-    return res.status(500).json({ 
-      error: 'Database error',
-      message: error.message 
-    });
-  } finally {
-    client.release();
-  }
-});
+  });
 
 // Get user-specific records
 app.post('/dc/daily/get-user-records', authenticateUser, async (req, res) => {
