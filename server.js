@@ -2756,65 +2756,84 @@ app.post('/dc/daily/get-checklist-items', authenticateUser, async (req, res) => 
 
 //Save checklist
 app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
-  const { action, data } = req.body;
-  
-  console.log('Received save-checklist request:', { 
-    action, 
-    data: { 
-      ...data, 
-      responses: data?.responses?.length 
-    } 
-  });
-  
-  // Validate request
-  if (action !== 'save-checklist') {
-    return res.status(400).json({ error: 'Invalid action specified' });
-  }
-  
-  if (!data) {
-    return res.status(400).json({ error: 'Missing data in request' });
-  }
-  
-  const { responses, location_id, inspector } = data;
-  const userId = req.user?.userId || data.user_id;
-  
-  if (!responses || !Array.isArray(responses)) {
-    return res.status(400).json({ error: 'Invalid responses format' });
-  }
-  
-  if (!location_id) {
-    return res.status(400).json({ error: 'Missing location_id' });
-  }
-  
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
+    const { action, data } = req.body;
     
-    console.log('Calling save_checklist function with:', {
-      userId, 
-      location_id, 
-      responsesCount: responses.length
+    console.log('Received save-checklist request:', { 
+      action, 
+      data: { 
+        ...data, 
+        responses: data?.responses?.length 
+      } 
     });
     
-    const result = await client.query(
-      'SELECT save_checklist($1, $2, $3, $4) as result',
-      [userId, location_id, inspector, JSON.stringify(responses)]
-    );
+    // Validate request
+    if (action !== 'save-checklist') {
+      return res.status(400).json({ error: 'Invalid action specified' });
+    }
     
-    await client.query('COMMIT');
+    if (!data) {
+      return res.status(400).json({ error: 'Missing data in request' });
+    }
     
-    const functionResult = result.rows[0].result;
-    console.log('Function returned:', functionResult);
+    const { responses, location_id, category_id, inspector } = data;
+    const userId = req.user?.userId || data.user_id;
     
-     // Check if all categories are completed
-     if (functionResult.success) {
-        // 1. Get total number of categories
+    if (!responses || !Array.isArray(responses)) {
+      return res.status(400).json({ error: 'Invalid responses format' });
+    }
+    
+    if (!location_id) {
+      return res.status(400).json({ error: 'Missing location_id' });
+    }
+  
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      console.log('Calling save_checklist function with:', {
+        userId, 
+        location_id,
+        category_id,
+        responsesCount: responses.length
+      });
+      
+      // Check if this category has already been submitted today
+      if (category_id) {
+        const existingSubmission = await client.query(
+          `SELECT 1 FROM checklist_records 
+           WHERE location_id = $1 
+           AND user_id = $2
+           AND data->>'categoryId' = $3
+           AND DATE(created_at) = CURRENT_DATE
+           LIMIT 1`,
+          [location_id, userId, category_id.toString()]
+        );
+        
+        if (existingSubmission.rows.length > 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ 
+            error: 'This category has already been submitted for today',
+            category_id,
+            location_id
+          });
+        }
+      }
+      
+      const result = await client.query(
+        'SELECT save_checklist($1, $2, $3, $4, $5) as result',
+        [userId, location_id, inspector, JSON.stringify(responses), category_id || null]
+      );
+      
+      const functionResult = result.rows[0].result;
+      console.log('Function returned:', functionResult);
+      
+      if (functionResult.success) {
+        // Check if all categories are completed for this location today
         const categoriesResult = await client.query('SELECT COUNT(*) FROM categories');
         const totalCategories = parseInt(categoriesResult.rows[0].count, 10);
         
-        // 2. Get distinct categories submitted today for this location
         const completedCategoriesResult = await client.query(
-          `SELECT COUNT(DISTINCT data->>'categoryName') 
+          `SELECT COUNT(DISTINCT data->>'categoryId') 
            FROM checklist_records 
            WHERE location_id = $1 
            AND user_id = $2
@@ -2824,9 +2843,8 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
         
         const completedCategories = parseInt(completedCategoriesResult.rows[0].count, 10);
         
-        // 3. Compare and send notification if all completed
+        // If all categories completed, send notification
         if (completedCategories >= totalCategories) {
-          // NEW: Get location name
           const locationResult = await client.query(
             'SELECT name FROM locations WHERE location_id = $1',
             [location_id]
@@ -2834,7 +2852,6 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
           
           const locationName = locationResult.rows[0]?.name || `Location ${location_id}`;
           
-          // Get user's device token
           const tokenResult = await client.query(
             'SELECT device_token FROM device_tokens WHERE user_id = $1',
             [userId]
@@ -2843,7 +2860,6 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
           if (tokenResult.rows.length > 0) {
             const deviceToken = tokenResult.rows[0].device_token;
             
-            // Notification with location name
             await sendPushNotification(
               [deviceToken],
               'Checklist Completed',
@@ -2854,7 +2870,6 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
               }
             );
             
-            // Also store a notification in the database with location name
             await client.query(
               'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
               [userId, `Completed all daily checks for ${locationName}`]
@@ -2863,16 +2878,18 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
             console.log(`Notification sent for completed checks at ${locationName}`);
           }
         }
-      }
-      
-      await client.query('COMMIT');
-      
-      if (functionResult.success) {
-        return res.json(functionResult);
+        
+        await client.query('COMMIT');
+        return res.json({
+          ...functionResult,
+          completedCategories,
+          totalCategories,
+          isLocationComplete: completedCategories >= totalCategories
+        });
       } else {
+        await client.query('ROLLBACK');
         return res.status(400).json(functionResult);
       }
-      
     } catch (error) {
       await client.query('ROLLBACK');
       console.error('Transaction error:', error);
