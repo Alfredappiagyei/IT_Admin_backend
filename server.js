@@ -2797,16 +2797,17 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
         responsesCount: responses.length
       });
       
-      // Check if this category has already been submitted today
+      // Check if this category has already been submitted today (updated query)
       if (category_id) {
         const existingSubmission = await client.query(
-          `SELECT 1 FROM checklist_records 
-           WHERE location_id = $1 
-           AND user_id = $2
-           AND data->>'categoryId' = $3
-           AND DATE(created_at) = CURRENT_DATE
+          `SELECT 1 FROM checklist_records cr
+           JOIN checklist_items ci ON cr.item_id = ci.item_id
+           WHERE cr.location_id = $1 
+           AND cr.user_id = $2
+           AND ci.category_id = $3
+           AND cr.inspection_date = CURRENT_DATE
            LIMIT 1`,
-          [location_id, userId, category_id.toString()]
+          [location_id, userId, category_id]
         );
         
         if (existingSubmission.rows.length > 0) {
@@ -2828,16 +2829,17 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
       console.log('Function returned:', functionResult);
       
       if (functionResult.success) {
-        // Check if all categories are completed for this location today
+        // Check if all categories are completed for this location today (updated query)
         const categoriesResult = await client.query('SELECT COUNT(*) FROM categories');
         const totalCategories = parseInt(categoriesResult.rows[0].count, 10);
         
         const completedCategoriesResult = await client.query(
-          `SELECT COUNT(DISTINCT data->>'categoryId') 
-           FROM checklist_records 
-           WHERE location_id = $1 
-           AND user_id = $2
-           AND DATE(created_at) = CURRENT_DATE`,
+          `SELECT COUNT(DISTINCT ci.category_id) 
+           FROM checklist_records cr
+           JOIN checklist_items ci ON cr.item_id = ci.item_id
+           WHERE cr.location_id = $1 
+           AND cr.user_id = $2
+           AND cr.inspection_date = CURRENT_DATE`,
           [location_id, userId]
         );
         
