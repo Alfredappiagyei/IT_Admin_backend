@@ -2936,6 +2936,112 @@ app.post('/dc/daily/get-user-records', authenticateUser, async (req, res) => {
   }
 });
 
+// Check submitted locations
+app.post('/dc/daily/check-submitted-locations', authenticateUser, async (req, res) => {
+    try {
+      const { action, date, userId: requestUserId } = req.body;
+      
+      if (action !== 'check-submitted-locations') {
+        return res.status(400).json({ error: 'Invalid action' });
+      }
+  
+      // Validate date format (YYYY-MM-DD) if provided
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+      }
+  
+      // Use authenticated user's ID unless a specific one is provided (for admins)
+      const userId = req.user?.isAdmin && requestUserId ? requestUserId : req.user?.userId;
+  
+      const client = await pool.connect();
+      try {
+        let query = `
+          SELECT 
+            l.location_id,
+            l.location_name,
+            COUNT(cr.id) as submission_count,
+            MAX(cr.inspection_date) as last_submission_date,
+            EXISTS(
+              SELECT 1 FROM checklist_records cr2
+              JOIN checklist_items ci ON cr2.item_id = ci.item_id
+              WHERE cr2.location_id = l.location_id
+              ${userId ? 'AND cr2.user_id = $1' : ''}
+              ${date ? (userId ? 'AND cr2.inspection_date = $2' : 'AND cr2.inspection_date = $1') : ''}
+            ) as has_submissions
+          FROM locations l
+          LEFT JOIN checklist_records cr ON l.location_id = cr.location_id
+          ${date ? (userId ? 'AND cr.inspection_date = $2' : 'AND cr.inspection_date = $1') : ''}
+          ${userId ? 'AND cr.user_id = $1' : ''}
+          GROUP BY l.location_id, l.location_name
+          ORDER BY l.location_name
+        `;
+  
+        let queryParams = [];
+        if (userId && date) {
+          queryParams = [userId, date];
+        } else if (userId) {
+          queryParams = [userId];
+        } else if (date) {
+          queryParams = [date];
+        }
+  
+        const result = await client.query(query, queryParams);
+  
+        const locations = result.rows.map(row => ({
+          locationId: row.location_id,
+          locationName: row.location_name,
+          submissionCount: parseInt(row.submission_count, 10),
+          lastSubmissionDate: row.last_submission_date,
+          hasSubmissions: row.has_submissions,
+          isComplete: false // We'll check this next for each location
+        }));
+  
+        // For each location, check if all categories are completed (if date is provided)
+        if (date) {
+          const categoriesCountResult = await client.query('SELECT COUNT(*) FROM categories');
+          const totalCategories = parseInt(categoriesCountResult.rows[0].count, 10);
+  
+          for (const location of locations) {
+            if (location.hasSubmissions) {
+              const completedResult = await client.query(
+                `SELECT COUNT(DISTINCT ci.category_id) as completed_count
+                 FROM checklist_records cr
+                 JOIN checklist_items ci ON cr.item_id = ci.item_id
+                 WHERE cr.location_id = $1
+                 ${userId ? 'AND cr.user_id = $2' : ''}
+                 AND cr.inspection_date = ${userId ? '$3' : '$2'}`,
+                userId ? [location.locationId, userId, date] : [location.locationId, date]
+              );
+  
+              const completedCount = parseInt(completedResult.rows[0].completed_count, 10);
+              location.completedCategories = completedCount;
+              location.totalCategories = totalCategories;
+              location.isComplete = completedCount >= totalCategories;
+            }
+          }
+        }
+  
+        res.json({ 
+          locations,
+          dateFilter: date || null,
+          userFilter: userId || null 
+        });
+  
+      } finally {
+        client.release();
+      }
+  
+    } catch (error) {
+      console.error('Error checking submitted locations:', error.message);
+      res.status(500).json({ 
+        error: 'Internal server error', 
+        details: error.message,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      });
+    }
+  });
+
+
 // Middleware to set request timeout (10 seconds)
 app.use((req, res, next) => {
     res.setTimeout(10000, () => {
