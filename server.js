@@ -2848,7 +2848,7 @@ app.post('/dc/daily/save-checklist', authenticateUser, async (req, res) => {
         // If all categories completed, send notification
         if (completedCategories >= totalCategories) {
           const locationResult = await client.query(
-            'SELECT name FROM locations WHERE location_id = $1',
+            'SELECT location_name FROM locations WHERE location_id = $1',
             [location_id]
           );
           
