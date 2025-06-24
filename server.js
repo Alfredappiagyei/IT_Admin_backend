@@ -1042,6 +1042,73 @@ app.post('/submit-ticket', async (req, res) => {
     }
 });
 
+app.get('/notifications', authenticateUser, async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const userId = req.userId;
+        
+        const result = await client.query(
+            'SELECT id, message, created_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC',
+            [userId]
+        );
+        
+        res.status(200).json({
+            success: true,
+            notifications: result.rows,
+            count: result.rowCount
+        });
+    } catch (error) {
+        console.error("Error fetching notifications:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error fetching notifications",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        client.release();
+    }
+});
+
+app.delete('/notifications/:id', authenticateUser, async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const userId = req.userId;
+        const notificationId = req.params.id;
+        
+        // Verify the notification belongs to the user before deleting
+        const verifyQuery = await client.query(
+            'SELECT id FROM notifications WHERE id = $1 AND user_id = $2',
+            [notificationId, userId]
+        );
+        
+        if (verifyQuery.rowCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: "Notification not found or not owned by user"
+            });
+        }
+        
+        await client.query(
+            'DELETE FROM notifications WHERE id = $1',
+            [notificationId]
+        );
+        
+        res.status(200).json({
+            success: true,
+            message: "Notification deleted successfully"
+        });
+    } catch (error) {
+        console.error("Error deleting notification:", error);
+        res.status(500).json({
+            success: false,
+            message: "Error deleting notification",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        client.release();
+    }
+});
+
 
 // // Route to fetch recent notifications
 // app.get("/notifications", authenticateUser, async (req, res) => {
