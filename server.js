@@ -2936,110 +2936,370 @@ app.post('/dc/daily/get-user-records', authenticateUser, async (req, res) => {
   }
 });
 
-// Check submitted locations
-app.post('/dc/daily/check-submitted-locations', authenticateUser, async (req, res) => {
+// Check for already submitted locations and categories
+app.post('/dc/daily/check-submissions', authenticateUser, async (req, res) => {
     try {
-      const { action, date, userId: requestUserId } = req.body;
+      const { action, data } = req.body;
       
-      if (action !== 'check-submitted-locations') {
+      if (action !== 'check-submissions') {
         return res.status(400).json({ error: 'Invalid action' });
       }
   
-      // Validate date format (YYYY-MM-DD) if provided
-      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-        return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+      const userId = req.user?.userId || data?.user_id;
+      const { date, location_id, category_id } = data || {};
+  
+      if (!userId) {
+        return res.status(400).json({ error: 'User ID is missing' });
       }
   
-      // Use authenticated user's ID unless a specific one is provided (for admins)
-      const userId = req.user?.isAdmin && requestUserId ? requestUserId : req.user?.userId;
+      // Validate date format if provided, default to today
+      let targetDate = 'CURRENT_DATE';
+      let dateParam = [];
+      
+      if (date) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+        }
+        targetDate = '$' + (dateParam.length + 2); // Adjust parameter index
+        dateParam.push(date);
+      }
   
-      const client = await pool.connect();
-      try {
-        let query = `
+      let query = '';
+      let params = [userId, ...dateParam];
+  
+      if (location_id && category_id) {
+        // Check specific location and category combination
+        query = `
           SELECT 
-            l.location_id,
+            cr.location_id,
             l.location_name,
-            COUNT(cr.id) as submission_count,
-            MAX(cr.inspection_date) as last_submission_date,
-            EXISTS(
-              SELECT 1 FROM checklist_records cr2
-              JOIN checklist_items ci ON cr2.item_id = ci.item_id
-              WHERE cr2.location_id = l.location_id
-              ${userId ? 'AND cr2.user_id = $1' : ''}
-              ${date ? (userId ? 'AND cr2.inspection_date = $2' : 'AND cr2.inspection_date = $1') : ''}
-            ) as has_submissions
-          FROM locations l
-          LEFT JOIN checklist_records cr ON l.location_id = cr.location_id
-          ${date ? (userId ? 'AND cr.inspection_date = $2' : 'AND cr.inspection_date = $1') : ''}
-          ${userId ? 'AND cr.user_id = $1' : ''}
-          GROUP BY l.location_id, l.location_name
-          ORDER BY l.location_name
+            ci.category_id,
+            c.category_name,
+            COUNT(*) as submission_count,
+            MAX(cr.created_at) as last_submission,
+            ARRAY_AGG(DISTINCT cr.item_id) as submitted_items
+          FROM checklist_records cr
+          JOIN checklist_items ci ON cr.item_id = ci.item_id
+          JOIN locations l ON cr.location_id = l.location_id
+          JOIN categories c ON ci.category_id = c.category_id
+          WHERE cr.user_id = $1 
+          AND cr.location_id = $${params.length + 1}
+          AND ci.category_id = $${params.length + 2}
+          AND cr.inspection_date = ${targetDate}
+          GROUP BY cr.location_id, l.location_name, ci.category_id, c.category_name
         `;
-  
-        let queryParams = [];
-        if (userId && date) {
-          queryParams = [userId, date];
-        } else if (userId) {
-          queryParams = [userId];
-        } else if (date) {
-          queryParams = [date];
-        }
-  
-        const result = await client.query(query, queryParams);
-  
-        const locations = result.rows.map(row => ({
-          locationId: row.location_id,
-          locationName: row.location_name,
-          submissionCount: parseInt(row.submission_count, 10),
-          lastSubmissionDate: row.last_submission_date,
-          hasSubmissions: row.has_submissions,
-          isComplete: false // We'll check this next for each location
-        }));
-  
-        // For each location, check if all categories are completed (if date is provided)
-        if (date) {
-          const categoriesCountResult = await client.query('SELECT COUNT(*) FROM categories');
-          const totalCategories = parseInt(categoriesCountResult.rows[0].count, 10);
-  
-          for (const location of locations) {
-            if (location.hasSubmissions) {
-              const completedResult = await client.query(
-                `SELECT COUNT(DISTINCT ci.category_id) as completed_count
-                 FROM checklist_records cr
-                 JOIN checklist_items ci ON cr.item_id = ci.item_id
-                 WHERE cr.location_id = $1
-                 ${userId ? 'AND cr.user_id = $2' : ''}
-                 AND cr.inspection_date = ${userId ? '$3' : '$2'}`,
-                userId ? [location.locationId, userId, date] : [location.locationId, date]
-              );
-  
-              const completedCount = parseInt(completedResult.rows[0].completed_count, 10);
-              location.completedCategories = completedCount;
-              location.totalCategories = totalCategories;
-              location.isComplete = completedCount >= totalCategories;
-            }
-          }
-        }
-  
-        res.json({ 
-          locations,
-          dateFilter: date || null,
-          userFilter: userId || null 
-        });
-  
-      } finally {
-        client.release();
+        params.push(location_id, category_id);
+        
+      } else if (location_id) {
+        // Check all categories for a specific location
+        query = `
+          SELECT 
+            cr.location_id,
+            l.location_name,
+            ci.category_id,
+            c.category_name,
+            COUNT(*) as submission_count,
+            MAX(cr.created_at) as last_submission,
+            ARRAY_AGG(DISTINCT cr.item_id) as submitted_items
+          FROM checklist_records cr
+          JOIN checklist_items ci ON cr.item_id = ci.item_id
+          JOIN locations l ON cr.location_id = l.location_id
+          JOIN categories c ON ci.category_id = c.category_id
+          WHERE cr.user_id = $1 
+          AND cr.location_id = $${params.length + 1}
+          AND cr.inspection_date = ${targetDate}
+          GROUP BY cr.location_id, l.location_name, ci.category_id, c.category_name
+          ORDER BY ci.category_id
+        `;
+        params.push(location_id);
+        
+      } else {
+        // Check all locations and categories for the user
+        query = `
+          SELECT 
+            cr.location_id,
+            l.location_name,
+            ci.category_id,
+            c.category_name,
+            COUNT(*) as submission_count,
+            MAX(cr.created_at) as last_submission,
+            ARRAY_AGG(DISTINCT cr.item_id) as submitted_items
+          FROM checklist_records cr
+          JOIN checklist_items ci ON cr.item_id = ci.item_id
+          JOIN locations l ON cr.location_id = l.location_id
+          JOIN categories c ON ci.category_id = c.category_id
+          WHERE cr.user_id = $1 
+          AND cr.inspection_date = ${targetDate}
+          GROUP BY cr.location_id, l.location_name, ci.category_id, c.category_name
+          ORDER BY cr.location_id, ci.category_id
+        `;
       }
+  
+      const result = await pool.query(query, params);
+      
+      // Get summary statistics
+      const summaryQuery = `
+        SELECT 
+          COUNT(DISTINCT cr.location_id) as total_locations_submitted,
+          COUNT(DISTINCT ci.category_id) as total_categories_submitted,
+          COUNT(*) as total_items_submitted,
+          (SELECT COUNT(*) FROM locations) as total_locations,
+          (SELECT COUNT(*) FROM categories) as total_categories
+        FROM checklist_records cr
+        JOIN checklist_items ci ON cr.item_id = ci.item_id
+        WHERE cr.user_id = $1 
+        AND cr.inspection_date = ${targetDate}
+      `;
+      
+      const summaryResult = await pool.query(summaryQuery, [userId, ...dateParam]);
+      const summary = summaryResult.rows[0];
+  
+      // Transform the data for better readability
+      const submissions = result.rows.map(row => ({
+        locationId: row.location_id,
+        locationName: row.location_name,
+        categoryId: row.category_id,
+        categoryName: row.category_name,
+        submissionCount: parseInt(row.submission_count),
+        lastSubmission: row.last_submission,
+        submittedItems: row.submitted_items,
+        isSubmitted: true
+      }));
+  
+      // Group by location for easier consumption
+      const locationGroups = {};
+      submissions.forEach(submission => {
+        if (!locationGroups[submission.locationId]) {
+          locationGroups[submission.locationId] = {
+            locationId: submission.locationId,
+            locationName: submission.locationName,
+            categories: [],
+            totalCategoriesSubmitted: 0
+          };
+        }
+        
+        locationGroups[submission.locationId].categories.push({
+          categoryId: submission.categoryId,
+          categoryName: submission.categoryName,
+          submissionCount: submission.submissionCount,
+          lastSubmission: submission.lastSubmission,
+          submittedItems: submission.submittedItems,
+          isSubmitted: true
+        });
+        
+        locationGroups[submission.locationId].totalCategoriesSubmitted++;
+      });
+  
+      const response = {
+        submissions,
+        locationGroups: Object.values(locationGroups),
+        summary: {
+          totalLocationsSubmitted: parseInt(summary.total_locations_submitted),
+          totalCategoriesSubmitted: parseInt(summary.total_categories_submitted), 
+          totalItemsSubmitted: parseInt(summary.total_items_submitted),
+          totalLocations: parseInt(summary.total_locations),
+          totalCategories: parseInt(summary.total_categories),
+          completionPercentage: {
+            locations: ((parseInt(summary.total_locations_submitted) / parseInt(summary.total_locations)) * 100).toFixed(2),
+            categories: ((parseInt(summary.total_categories_submitted) / parseInt(summary.total_categories)) * 100).toFixed(2)
+          }
+        },
+        queryDate: date || new Date().toISOString().split('T')[0],
+        hasSubmissions: submissions.length > 0
+      };
+  
+      console.log(`Found ${submissions.length} submissions for user ${userId} on ${response.queryDate}`);
+      res.json(response);
   
     } catch (error) {
-      console.error('Error checking submitted locations:', error.message);
+      console.error('Error checking submissions:', error.message);
       res.status(500).json({ 
         error: 'Internal server error', 
-        details: error.message,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        details: error.message 
       });
     }
   });
+  
+  // Additional helper endpoint to check if specific submission exists
+  app.post('/dc/daily/check-submission-exists', authenticateUser, async (req, res) => {
+    try {
+      const { action, data } = req.body;
+      
+      if (action !== 'check-submission-exists') {
+        return res.status(400).json({ error: 'Invalid action' });
+      }
+  
+      const userId = req.user?.userId || data?.user_id;
+      const { location_id, category_id, date } = data || {};
+  
+      if (!userId || !location_id || !category_id) {
+        return res.status(400).json({ 
+          error: 'Missing required parameters: user_id, location_id, category_id' 
+        });
+      }
+  
+      // Validate date format if provided
+      let targetDate = 'CURRENT_DATE';
+      let dateParam = [];
+      
+      if (date) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+        }
+        targetDate = '$4';
+        dateParam.push(date);
+      }
+  
+      const query = `
+        SELECT 
+          COUNT(*) as exists,
+          MAX(cr.created_at) as last_submission,
+          l.location_name,
+          c.category_name
+        FROM checklist_records cr
+        JOIN checklist_items ci ON cr.item_id = ci.item_id
+        JOIN locations l ON cr.location_id = l.location_id
+        JOIN categories c ON ci.category_id = c.category_id
+        WHERE cr.user_id = $1 
+        AND cr.location_id = $2
+        AND ci.category_id = $3
+        AND cr.inspection_date = ${targetDate}
+        GROUP BY l.location_name, c.category_name
+      `;
+  
+      const params = [userId, location_id, category_id, ...dateParam];
+      const result = await pool.query(query, params);
+      
+      const exists = result.rows.length > 0 && parseInt(result.rows[0].exists) > 0;
+      
+      const response = {
+        exists,
+        locationId: location_id,
+        categoryId: category_id,
+        queryDate: date || new Date().toISOString().split('T')[0],
+        ...(exists && {
+          lastSubmission: result.rows[0].last_submission,
+          locationName: result.rows[0].location_name,
+          categoryName: result.rows[0].category_name,
+          submissionCount: parseInt(result.rows[0].exists)
+        })
+      };
+  
+      res.json(response);
+  
+    } catch (error) {
+      console.error('Error checking submission existence:', error.message);
+      res.status(500).json({ 
+        error: 'Internal server error', 
+        details: error.message 
+      });
+    }
+  });
+
+// // Check submitted locations
+// app.post('/dc/daily/check-submitted-locations', authenticateUser, async (req, res) => {
+//     try {
+//       const { action, date, userId: requestUserId } = req.body;
+      
+//       if (action !== 'check-submitted-locations') {
+//         return res.status(400).json({ error: 'Invalid action' });
+//       }
+  
+//       // Validate date format (YYYY-MM-DD) if provided
+//       if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+//         return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+//       }
+  
+//       // Use authenticated user's ID unless a specific one is provided (for admins)
+//       const userId = req.user?.isAdmin && requestUserId ? requestUserId : req.user?.userId;
+  
+//       const client = await pool.connect();
+//       try {
+//         let query = `
+//           SELECT 
+//             l.location_id,
+//             l.location_name,
+//             COUNT(cr.id) as submission_count,
+//             MAX(cr.inspection_date) as last_submission_date,
+//             EXISTS(
+//               SELECT 1 FROM checklist_records cr2
+//               JOIN checklist_items ci ON cr2.item_id = ci.item_id
+//               WHERE cr2.location_id = l.location_id
+//               ${userId ? 'AND cr2.user_id = $1' : ''}
+//               ${date ? (userId ? 'AND cr2.inspection_date = $2' : 'AND cr2.inspection_date = $1') : ''}
+//             ) as has_submissions
+//           FROM locations l
+//           LEFT JOIN checklist_records cr ON l.location_id = cr.location_id
+//           ${date ? (userId ? 'AND cr.inspection_date = $2' : 'AND cr.inspection_date = $1') : ''}
+//           ${userId ? 'AND cr.user_id = $1' : ''}
+//           GROUP BY l.location_id, l.location_name
+//           ORDER BY l.location_name
+//         `;
+  
+//         let queryParams = [];
+//         if (userId && date) {
+//           queryParams = [userId, date];
+//         } else if (userId) {
+//           queryParams = [userId];
+//         } else if (date) {
+//           queryParams = [date];
+//         }
+  
+//         const result = await client.query(query, queryParams);
+  
+//         const locations = result.rows.map(row => ({
+//           locationId: row.location_id,
+//           locationName: row.location_name,
+//           submissionCount: parseInt(row.submission_count, 10),
+//           lastSubmissionDate: row.last_submission_date,
+//           hasSubmissions: row.has_submissions,
+//           isComplete: false // We'll check this next for each location
+//         }));
+  
+//         // For each location, check if all categories are completed (if date is provided)
+//         if (date) {
+//           const categoriesCountResult = await client.query('SELECT COUNT(*) FROM categories');
+//           const totalCategories = parseInt(categoriesCountResult.rows[0].count, 10);
+  
+//           for (const location of locations) {
+//             if (location.hasSubmissions) {
+//               const completedResult = await client.query(
+//                 `SELECT COUNT(DISTINCT ci.category_id) as completed_count
+//                  FROM checklist_records cr
+//                  JOIN checklist_items ci ON cr.item_id = ci.item_id
+//                  WHERE cr.location_id = $1
+//                  ${userId ? 'AND cr.user_id = $2' : ''}
+//                  AND cr.inspection_date = ${userId ? '$3' : '$2'}`,
+//                 userId ? [location.locationId, userId, date] : [location.locationId, date]
+//               );
+  
+//               const completedCount = parseInt(completedResult.rows[0].completed_count, 10);
+//               location.completedCategories = completedCount;
+//               location.totalCategories = totalCategories;
+//               location.isComplete = completedCount >= totalCategories;
+//             }
+//           }
+//         }
+  
+//         res.json({ 
+//           locations,
+//           dateFilter: date || null,
+//           userFilter: userId || null 
+//         });
+  
+//       } finally {
+//         client.release();
+//       }
+  
+//     } catch (error) {
+//       console.error('Error checking submitted locations:', error.message);
+//       res.status(500).json({ 
+//         error: 'Internal server error', 
+//         details: error.message,
+//         stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+//       });
+//     }
+//   });
 
 
 // Middleware to set request timeout (10 seconds)
