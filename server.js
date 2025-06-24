@@ -918,7 +918,11 @@ app.post('/submit-ticket', async (req, res) => {
     if (regionId && (!Number.isInteger(regionId) || regionId <= 0)) {
         return res.status(400).json({ success: false, message: 'Region ID must be a positive integer' });
     }
+
+    const client = await pool.connect();
     try {
+        await client.query('BEGIN');
+        
         let userId = null;
         if (req.headers.authorization) {
             try {
@@ -957,8 +961,9 @@ app.post('/submit-ticket', async (req, res) => {
         const jsonTicketDetails = JSON.stringify(ticketDetails);
         const query = `SELECT public.ticket_insert($1::text) AS result;`;
         console.log('Submitting ticket with JSON:', jsonTicketDetails);
-        const result = await pool.query(query, [jsonTicketDetails]);
+        const result = await client.query(query, [jsonTicketDetails]);
         const insertResult = result.rows[0].result;
+        
         if (insertResult) {
             let verifyQuery;
             let verifyParams;
@@ -984,24 +989,32 @@ app.post('/submit-ticket', async (req, res) => {
                 `;
                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
             }
-            const verifyResult = await pool.query(verifyQuery, verifyParams);
+            const verifyResult = await client.query(verifyQuery, verifyParams);
+            
             if (verifyResult.rows.length > 0) {
                 const ticketCode = verifyResult.rows[0].code;
                 console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
-                // Notify ticket creator if authenticated
+                
+                // Insert notification into notifications table (like save-checklist endpoint)
                 if (userId) {
-                    await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
                     await client.query(
                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                        [userId, 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode } ]
-                      );
+                        [userId, `New ticket ${ticketCode} has been created successfully`]
+                    );
+                    
+                    // Send push notification
+                    await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
                 }
+                
+                await client.query('COMMIT');
+                
                 return res.status(201).json({
                     success: true,
                     message: 'Ticket submitted successfully',
                     ticketCode,
                 });
             } else {
+                await client.query('ROLLBACK');
                 console.error('Ticket insertion failed: No ticket found in database');
                 return res.status(500).json({
                     success: false,
@@ -1009,6 +1022,7 @@ app.post('/submit-ticket', async (req, res) => {
                 });
             }
         } else {
+            await client.query('ROLLBACK');
             console.error('Ticket insertion failed: Function returned false');
             return res.status(500).json({
                 success: false,
@@ -1016,31 +1030,35 @@ app.post('/submit-ticket', async (req, res) => {
             });
         }
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('Error submitting ticket:', error.message);
         return res.status(500).json({
             success: false,
             message: 'Server error',
             error: error.message,
         });
+    } finally {
+        client.release();
     }
 });
 
-// Route to fetch recent notifications
-app.get("/notifications", authenticateUser, async (req, res) => {
-    try {
-        const query = `
-            SELECT message, created_at
-            FROM notifications
-            ORDER BY created_at DESC
-            LIMIT 10;
-        `;
-        const result = await pool.query(query);
-        res.json(result.rows);
-    } catch (error) {
-        console.error("Error fetching notifications:", error);
-        res.status(500).json({ message: "Error fetching notifications" });
-    }
-});
+
+// // Route to fetch recent notifications
+// app.get("/notifications", authenticateUser, async (req, res) => {
+//     try {
+//         const query = `
+//             SELECT message, created_at
+//             FROM notifications
+//             ORDER BY created_at DESC
+//             LIMIT 10;
+//         `;
+//         const result = await pool.query(query);
+//         res.json(result.rows);
+//     } catch (error) {
+//         console.error("Error fetching notifications:", error);
+//         res.status(500).json({ message: "Error fetching notifications" });
+//     }
+// });
 
 // app.post('/sendPushNotification', authenticateUser, async (req, res) => {
 //   const { userIds, ticketId, title, body } = req.body;
@@ -1755,10 +1773,6 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
         if (assigned_userid) userIds.push(assigned_userid);
         if (userIds.length > 0) {
             await notifyUsers(userIds, 'Ticket Status Updated', `Ticket ${ticketCode} status changed to ${statusName}.`, { ticketId: ticketCode });
-            await client.query(
-                'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                [userIds, 'Ticket Status Updated', `Ticket ${ticketCode} status changed to ${statusName}.`, { ticketId: ticketCode } ]
-              );
         }
         res.status(200).json({
             success: true,
@@ -1784,10 +1798,14 @@ app.put('/tickets/:code/status', authenticateUser, async (req, res) => {
 app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
     const client = await pool.connect();
     try {
+        await client.query('BEGIN');
+        
         const updatingUserId = req.userId;
         const ticketCode = req.params.code;
         const { status } = req.body;
+        
         if (!status || typeof status !== 'string' || status.trim() === '') {
+            await client.query('ROLLBACK');
             return res.status(400).json({
                 success: false,
                 message: 'Status is required and must be a non-empty string',
@@ -1797,7 +1815,7 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
                 }
             });
         }
-        await client.query('BEGIN');
+
         const statusQuery = await client.query(
             `SELECT id, status_name 
              FROM status 
@@ -1805,6 +1823,7 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
              AND LOWER(status_name) IN ('on hold', 'solved', 'open', 'pending', 'closed')`,
             [status.trim()]
         );
+        
         if (statusQuery.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(400).json({
@@ -1817,8 +1836,10 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
                 }
             });
         }
+
         const statusId = statusQuery.rows[0].id;
         const statusName = statusQuery.rows[0].status_name;
+
         const updateTicketQuery = await client.query(
             `UPDATE tickets
              SET status_id = $1
@@ -1826,6 +1847,7 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
              RETURNING id, code, status_id, open_id, assigned_userid`,
             [statusId, ticketCode]
         );
+
         if (updateTicketQuery.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({
@@ -1836,29 +1858,64 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
                 }
             });
         }
+
         const noteDetails = {
             note: `Status changed to ${statusName} by admin`,
             user_id: updatingUserId,
             note_date: new Date().toISOString()
         };
+        
         await client.query(
             `INSERT INTO note(ticket_id, note, user_id, date_created)
              VALUES ($1, $2, $3, $4)`,
             [updateTicketQuery.rows[0].id, noteDetails.note, noteDetails.user_id, noteDetails.note_date]
         );
-        await client.query('COMMIT');
-        // Notify creator and assigned user
+
+        // Insert notifications into notifications table for all relevant users
         const { open_id, assigned_userid } = updateTicketQuery.rows[0];
+        const notificationPromises = [];
+        
+        // Notify ticket creator
+        if (open_id && open_id !== updatingUserId) {
+            notificationPromises.push(
+                client.query(
+                    'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                    [open_id, `Your ticket ${ticketCode} status has been changed to ${statusName}`]
+                )
+            );
+        }
+        
+        // Notify assigned user
+        if (assigned_userid && assigned_userid !== updatingUserId && assigned_userid !== open_id) {
+            notificationPromises.push(
+                client.query(
+                    'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                    [assigned_userid, `Ticket ${ticketCode} status has been changed to ${statusName}`]
+                )
+            );
+        }
+        
+        // Notify the admin who made the change
+        notificationPromises.push(
+            client.query(
+                'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                [updatingUserId, `Successfully updated ticket ${ticketCode} status to ${statusName}`]
+            )
+        );
+        
+        // Execute all notification insertions
+        await Promise.all(notificationPromises);
+        
+        await client.query('COMMIT');
+
+        // Send push notifications
         const userIds = [];
         if (open_id) userIds.push(open_id);
         if (assigned_userid) userIds.push(assigned_userid);
         if (userIds.length > 0) {
             await notifyUsers(userIds, 'Ticket Status Updated', `Ticket ${ticketCode} status changed to ${statusName}.`, { ticketId: ticketCode });
-            await client.query(
-                'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                [assigned_userid, 'Ticket Status Updated', `Ticket ${ticketCode} status changed to ${statusName}.`, { ticketId: ticketCode } ]
-              );
         }
+
         res.status(200).json({
             success: true,
             message: `Ticket status updated to ${statusName} successfully`,
@@ -1888,6 +1945,7 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
         client.release();
     }
 });
+
 
 //Fetch All Assigned Tickets
 app.get("/tickets/assigned-admin", authenticateUser, async (req, res) => {
@@ -1945,7 +2003,10 @@ ORDER BY t.date_created DESC;
 
 // Route to assign a ticket to a user
 app.post("/tickets/assign", authenticateUser, async (req, res) => {
+    const client = await pool.connect();
     try {
+        await client.query('BEGIN');
+        
         const assigningUserId = req.userId;
         const {
             code,
@@ -1955,9 +2016,14 @@ app.post("/tickets/assign", authenticateUser, async (req, res) => {
             department_id,
             status_id
         } = req.body;
+        
         if (!code || !priority_id || !assigned_userid || !department_id) {
-            return res.status(400).json({ message: "Missing required fields: code, priority_id, assigned_userid, department_id" });
+            await client.query('ROLLBACK');
+            return res.status(400).json({ 
+                message: "Missing required fields: code, priority_id, assigned_userid, department_id" 
+            });
         }
+
         const ticketDetails = {
             code,
             priority_id,
@@ -1967,31 +2033,74 @@ app.post("/tickets/assign", authenticateUser, async (req, res) => {
             status_id: status_id || 1,
             last_updated_by: assigningUserId,
         };
-        const query = `
-            SELECT re_assign_ticket($1::text) AS result;
-        `;
-        const result = await pool.query(query, [JSON.stringify(ticketDetails)]);
+
+        const query = `SELECT re_assign_ticket($1::text) AS result;`;
+        const result = await client.query(query, [JSON.stringify(ticketDetails)]);
         const assignmentResult = result.rows[0].result;
+
         if (assignmentResult === true) {
-            // Notify assigned user
+            // Insert notifications into notifications table for both users
+            const notificationPromises = [];
+            
+            // Notify the assigned user
+            notificationPromises.push(
+                client.query(
+                    'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                    [assigned_userid, `You have been assigned to ticket ${code}`]
+                )
+            );
+            
+            // Notify the assigning user (admin/manager)
+            notificationPromises.push(
+                client.query(
+                    'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                    [assigningUserId, `Successfully assigned ticket ${code} to user`]
+                )
+            );
+            
+            // Get ticket creator to notify them too
+            const creatorQuery = await client.query(
+                'SELECT open_id FROM tickets WHERE code = $1',
+                [code]
+            );
+            
+            if (creatorQuery.rows.length > 0 && creatorQuery.rows[0].open_id) {
+                const creatorId = creatorQuery.rows[0].open_id;
+                if (creatorId !== assigned_userid && creatorId !== assigningUserId) {
+                    notificationPromises.push(
+                        client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [creatorId, `Your ticket ${code} has been assigned for resolution`]
+                        )
+                    );
+                }
+            }
+            
+            // Execute all notification insertions
+            await Promise.all(notificationPromises);
+            
+            // Send push notifications
             await notifyUsers([assigned_userid], 'Ticket Assigned', `You have been assigned to ticket ${code}.`, { ticketId: code });
-            await client.query(
-                'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                [assigned_userid, 'Ticket Assigned', `You have been assigned to ticket ${code}.`, { ticketId: code } ]
-              );
+            
+            await client.query('COMMIT');
+            
             res.status(200).json({
                 message: "Ticket assigned successfully",
                 ticket: { ...ticketDetails }
             });
         } else {
+            await client.query('ROLLBACK');
             return res.status(500).json({ message: "Failed to assign ticket" });
         }
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Error assigning ticket:", error);
-        res.status(500).json({ 
-            message: "Error assigning ticket", 
-            error: error.message 
+        res.status(500).json({
+            message: "Error assigning ticket",
+            error: error.message
         });
+    } finally {
+        client.release();
     }
 });
 
