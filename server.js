@@ -1043,17 +1043,233 @@ app.get("/tickets/trends", authenticateUser, async (req, res) => {
 // });
 
 
+// // Route to submit a new ticket
+// app.post('/submit-ticket', async (req, res) => {
+//     const { name, division, phoneNumber, office, priority, subject, details, staffId, region } = req.body;
+    
+//     // Validate required fields
+//     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details || !region) {
+//         return res.status(400).json({ success: false, message: 'All fields are required' });
+//     }
+
+//     // Validate staffId if provided
+//     if (staffId && typeof staffId !== 'string') {
+//         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
+//     }
+
+//     // Region mapping
+//     const regionMapping = {
+//         'Greater Accra': 1,
+//         'Eastern': 2,
+//         'Ashanti': 3,
+//         'Western': 4,
+//         'Volta': 5,
+//         'Oti': 6,
+//         'Western North': 7,
+//         'Bono': 8,
+//         'Bono East': 9,
+//         'Ahafo': 10,
+//         'Savannah': 11,
+//         'Northern': 12,
+//         'North East': 13,
+//         'Upper East': 14,
+//         'Upper West': 15,
+//         'Central': 16,
+//         'Tema': 17
+//     };
+
+//     const regionId = regionMapping[region];
+    
+//     if (!regionId) {
+//         return res.status(400).json({ 
+//             success: false, 
+//             message: 'Invalid region specified',
+//             validRegions: Object.keys(regionMapping)
+//         });
+//     }
+
+//     const client = await pool.connect();
+//     try {
+//         await client.query('BEGIN');
+        
+//         let userId = null;
+//         if (req.headers.authorization) {
+//             try {
+//                 const authHeader = req.headers.authorization;
+//                 if (authHeader.startsWith('Bearer ')) {
+//                     const token = authHeader.split(' ')[1];
+//                     const decoded = verify(token, process.env.JWT_SECRET);
+//                     userId = decoded.userId;
+//                 }
+//             } catch (error) {
+//                 console.warn('Authentication attempt failed, proceeding as unauthenticated:', error.message);
+//             }
+//         }
+
+//         const ticketDetails = {
+//             staff_id: staffId || null,
+//             region_id: regionId,
+//             division_id: division === 'lvd' ? 1 : 
+//                         division === 'pvlmd' ? 2 : 
+//                         division === 'lrd' ? 3 : 
+//                         division === 'smd' ? 4 : 
+//                         division === 'corporate' ? 5 : 5,
+//             priority_id: priority === 'urgent' ? 1 : 
+//                        priority === 'high' ? 2 : 
+//                        priority === 'medium' ? 3 : 4,
+//             is_assigned: 0,
+//             assigned_userid: null,
+//             date_assigned: 'N/A',
+//             department_id: null,
+//             subject,
+//             details,
+//             complainant_name: name,
+//             complainant_number: phoneNumber,
+//             complainant_office: office,
+//             status_id: 1,
+//             open_id: userId,
+//             pin: Math.floor(1000 + Math.random() * 9000),
+//             created_by: name,
+//             date_created: new Date().toISOString(),
+//         };
+
+//         const jsonTicketDetails = JSON.stringify(ticketDetails);
+//         const query = `SELECT public.ticket_insert($1::text) AS result;`;
+//         console.log('Submitting ticket with JSON:', jsonTicketDetails);
+//         const result = await client.query(query, [jsonTicketDetails]);
+//         const insertResult = result.rows[0].result;
+        
+//         if (insertResult) {
+//             let verifyQuery;
+//             let verifyParams;
+//             if (userId) {
+//                 verifyQuery = `
+//                     SELECT code
+//                     FROM public.tickets
+//                     WHERE open_id = $1
+//                     AND date_created = $2
+//                     AND subject = $3
+//                     LIMIT 1;
+//                 `;
+//                 verifyParams = [userId, ticketDetails.date_created, ticketDetails.subject];
+//             } else {
+//                 verifyQuery = `
+//                     SELECT code
+//                     FROM public.tickets
+//                     WHERE open_id IS NULL
+//                     AND created_by = $1
+//                     AND date_created = $2
+//                     AND subject = $3
+//                     LIMIT 1;
+//                 `;
+//                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
+//             }
+//             const verifyResult = await client.query(verifyQuery, verifyParams);
+            
+//             if (verifyResult.rows.length > 0) {
+//                 const ticketCode = verifyResult.rows[0].code;
+//                 console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
+                
+//                 // Insert notification
+//                 if (userId) {
+//                     await client.query(
+//                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+//                         [userId, `New ticket ${ticketCode} has been created successfully`]
+//                     );
+                    
+//                     // Send push notification
+//                     await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
+//                 }
+                
+//                 await client.query('COMMIT');
+                
+//                 return res.status(201).json({
+//                     success: true,
+//                     message: 'Ticket submitted successfully',
+//                     ticketCode,
+//                 });
+//             } else {
+//                 await client.query('ROLLBACK');
+//                 console.error('Ticket insertion failed: No ticket found in database');
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: 'Failed to submit ticket: Ticket not found in database',
+//                 });
+//             }
+//         } else {
+//             await client.query('ROLLBACK');
+//             console.error('Ticket insertion failed: Function returned false');
+//             return res.status(500).json({
+//                 success: false,
+//                 message: 'Failed to submit ticket: Database function failed',
+//             });
+//         }
+//     } catch (error) {
+//         await client.query('ROLLBACK');
+//         console.error('Error submitting ticket:', error.message);
+//         return res.status(500).json({
+//             success: false,
+//             message: 'Server error',
+//             error: error.message,
+//         });
+//     } finally {
+//         client.release();
+//     }
+// });
+
 // Route to submit a new ticket
 app.post('/submit-ticket', async (req, res) => {
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const startTime = Date.now();
+    
+    console.log(`[${requestId}] Ticket submission request started`, {
+        timestamp: new Date().toISOString(),
+        ip: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent'),
+        hasAuth: !!req.headers.authorization
+    });
+
     const { name, division, phoneNumber, office, priority, subject, details, staffId, region } = req.body;
+    
+    // Log request payload (sanitized)
+    console.log(`[${requestId}] Request payload received`, {
+        name: name ? '[REDACTED]' : undefined,
+        division,
+        phoneNumber: phoneNumber ? '[REDACTED]' : undefined,
+        office,
+        priority,
+        subject: subject ? subject.substring(0, 50) + '...' : undefined,
+        detailsLength: details ? details.length : 0,
+        staffId: staffId ? '[REDACTED]' : undefined,
+        region
+    });
     
     // Validate required fields
     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details || !region) {
+        const missingFields = [];
+        if (!name) missingFields.push('name');
+        if (!division) missingFields.push('division');
+        if (!phoneNumber) missingFields.push('phoneNumber');
+        if (!office) missingFields.push('office');
+        if (!priority) missingFields.push('priority');
+        if (!subject) missingFields.push('subject');
+        if (!details) missingFields.push('details');
+        if (!region) missingFields.push('region');
+        
+        console.warn(`[${requestId}] Validation failed - missing required fields`, {
+            missingFields,
+            duration: Date.now() - startTime
+        });
+        
         return res.status(400).json({ success: false, message: 'All fields are required' });
     }
 
     // Validate staffId if provided
     if (staffId && typeof staffId !== 'string') {
+        console.warn(`[${requestId}] Validation failed - invalid staffId type`, {
+            staffIdType: typeof staffId,
+            duration: Date.now() - startTime
+        });
         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
     }
 
@@ -1081,6 +1297,12 @@ app.post('/submit-ticket', async (req, res) => {
     const regionId = regionMapping[region];
     
     if (!regionId) {
+        console.warn(`[${requestId}] Validation failed - invalid region`, {
+            providedRegion: region,
+            validRegions: Object.keys(regionMapping),
+            duration: Date.now() - startTime
+        });
+        
         return res.status(400).json({ 
             success: false, 
             message: 'Invalid region specified',
@@ -1088,22 +1310,34 @@ app.post('/submit-ticket', async (req, res) => {
         });
     }
 
+    console.log(`[${requestId}] Validation passed, attempting database connection`);
+
     const client = await pool.connect();
     try {
+        console.log(`[${requestId}] Database connection established, beginning transaction`);
         await client.query('BEGIN');
         
         let userId = null;
         if (req.headers.authorization) {
+            console.log(`[${requestId}] Processing authentication token`);
             try {
                 const authHeader = req.headers.authorization;
                 if (authHeader.startsWith('Bearer ')) {
                     const token = authHeader.split(' ')[1];
                     const decoded = verify(token, process.env.JWT_SECRET);
                     userId = decoded.userId;
+                    console.log(`[${requestId}] Authentication successful`, { userId });
+                } else {
+                    console.warn(`[${requestId}] Invalid authorization header format`);
                 }
             } catch (error) {
-                console.warn('Authentication attempt failed, proceeding as unauthenticated:', error.message);
+                console.warn(`[${requestId}] Authentication attempt failed, proceeding as unauthenticated`, {
+                    error: error.message,
+                    errorType: error.name
+                });
             }
+        } else {
+            console.log(`[${requestId}] No authentication header provided, proceeding as unauthenticated`);
         }
 
         const ticketDetails = {
@@ -1133,11 +1367,29 @@ app.post('/submit-ticket', async (req, res) => {
             date_created: new Date().toISOString(),
         };
 
+        console.log(`[${requestId}] Ticket details prepared`, {
+            regionId: ticketDetails.region_id,
+            divisionId: ticketDetails.division_id,
+            priorityId: ticketDetails.priority_id,
+            hasUserId: !!ticketDetails.open_id,
+            pin: ticketDetails.pin
+        });
+
         const jsonTicketDetails = JSON.stringify(ticketDetails);
         const query = `SELECT public.ticket_insert($1::text) AS result;`;
-        console.log('Submitting ticket with JSON:', jsonTicketDetails);
+        
+        console.log(`[${requestId}] Executing ticket insertion`, {
+            queryFunction: 'public.ticket_insert',
+            payloadSize: jsonTicketDetails.length
+        });
+        
         const result = await client.query(query, [jsonTicketDetails]);
         const insertResult = result.rows[0].result;
+        
+        console.log(`[${requestId}] Ticket insertion function result`, {
+            success: !!insertResult,
+            result: insertResult
+        });
         
         if (insertResult) {
             let verifyQuery;
@@ -1152,6 +1404,7 @@ app.post('/submit-ticket', async (req, res) => {
                     LIMIT 1;
                 `;
                 verifyParams = [userId, ticketDetails.date_created, ticketDetails.subject];
+                console.log(`[${requestId}] Verifying ticket creation for authenticated user`);
             } else {
                 verifyQuery = `
                     SELECT code
@@ -1163,25 +1416,52 @@ app.post('/submit-ticket', async (req, res) => {
                     LIMIT 1;
                 `;
                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
+                console.log(`[${requestId}] Verifying ticket creation for unauthenticated user`);
             }
+            
             const verifyResult = await client.query(verifyQuery, verifyParams);
             
             if (verifyResult.rows.length > 0) {
                 const ticketCode = verifyResult.rows[0].code;
-                console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
+                console.log(`[${requestId}] Ticket created successfully`, {
+                    ticketCode,
+                    verificationMethod: userId ? 'authenticated' : 'unauthenticated'
+                });
                 
                 // Insert notification
                 if (userId) {
-                    await client.query(
-                        'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                        [userId, `New ticket ${ticketCode} has been created successfully`]
-                    );
-                    
-                    // Send push notification
-                    await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
+                    console.log(`[${requestId}] Creating notification for user`, { userId });
+                    try {
+                        await client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [userId, `New ticket ${ticketCode} has been created successfully`]
+                        );
+                        console.log(`[${requestId}] Notification inserted successfully`);
+                        
+                        // Send push notification
+                        console.log(`[${requestId}] Sending push notification`);
+                        await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
+                        console.log(`[${requestId}] Push notification sent successfully`);
+                    } catch (notificationError) {
+                        console.error(`[${requestId}] Failed to create notification/push`, {
+                            error: notificationError.message,
+                            userId,
+                            ticketCode
+                        });
+                        // Don't fail the entire request for notification issues
+                    }
+                } else {
+                    console.log(`[${requestId}] Skipping notification - no authenticated user`);
                 }
                 
+                console.log(`[${requestId}] Committing transaction`);
                 await client.query('COMMIT');
+                
+                console.log(`[${requestId}] Ticket submission completed successfully`, {
+                    ticketCode,
+                    duration: Date.now() - startTime,
+                    hasNotifications: !!userId
+                });
                 
                 return res.status(201).json({
                     success: true,
@@ -1189,31 +1469,62 @@ app.post('/submit-ticket', async (req, res) => {
                     ticketCode,
                 });
             } else {
+                console.error(`[${requestId}] Ticket verification failed - no ticket found in database`, {
+                    verificationParams: userId ? { userId, subject: ticketDetails.subject } : { createdBy: ticketDetails.created_by, subject: ticketDetails.subject },
+                    duration: Date.now() - startTime
+                });
+                
                 await client.query('ROLLBACK');
-                console.error('Ticket insertion failed: No ticket found in database');
                 return res.status(500).json({
                     success: false,
                     message: 'Failed to submit ticket: Ticket not found in database',
                 });
             }
         } else {
+            console.error(`[${requestId}] Ticket insertion function returned false`, {
+                functionResult: insertResult,
+                duration: Date.now() - startTime
+            });
+            
             await client.query('ROLLBACK');
-            console.error('Ticket insertion failed: Function returned false');
             return res.status(500).json({
                 success: false,
                 message: 'Failed to submit ticket: Database function failed',
             });
         }
     } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Error submitting ticket:', error.message);
+        console.error(`[${requestId}] Error during ticket submission`, {
+            error: error.message,
+            errorType: error.name,
+            stack: error.stack,
+            duration: Date.now() - startTime
+        });
+        
+        try {
+            await client.query('ROLLBACK');
+            console.log(`[${requestId}] Transaction rolled back successfully`);
+        } catch (rollbackError) {
+            console.error(`[${requestId}] Failed to rollback transaction`, {
+                rollbackError: rollbackError.message
+            });
+        }
+        
         return res.status(500).json({
             success: false,
             message: 'Server error',
             error: error.message,
         });
     } finally {
-        client.release();
+        try {
+            client.release();
+            console.log(`[${requestId}] Database connection released`, {
+                totalDuration: Date.now() - startTime
+            });
+        } catch (releaseError) {
+            console.error(`[${requestId}] Failed to release database connection`, {
+                error: releaseError.message
+            });
+        }
     }
 });
 
