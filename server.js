@@ -907,16 +907,185 @@ app.get("/tickets/trends", authenticateUser, async (req, res) => {
 
 
 // Route to submit a new ticket
+// app.post('/submit-ticket', async (req, res) => {
+//     const { name, division, phoneNumber, office, priority, subject, details, staffId, regionId } = req.body;
+//     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details) {
+//         return res.status(400).json({ success: false, message: 'All fields are required' });
+//     }
+//     if (staffId && typeof staffId !== 'string') {
+//         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
+//     }
+//     if (regionId && (!Number.isInteger(regionId) || regionId <= 0)) {
+//         return res.status(400).json({ success: false, message: 'Region ID must be a positive integer' });
+//     }
+
+//     const client = await pool.connect();
+//     try {
+//         await client.query('BEGIN');
+        
+//         let userId = null;
+//         if (req.headers.authorization) {
+//             try {
+//                 const authHeader = req.headers.authorization;
+//                 if (authHeader.startsWith('Bearer ')) {
+//                     const token = authHeader.split(' ')[1];
+//                     const decoded = verify(token, process.env.JWT_SECRET);
+//                     userId = decoded.userId;
+//                 }
+//             } catch (error) {
+//                 console.warn('Authentication attempt failed, proceeding as unauthenticated:', error.message);
+//             }
+//         }
+//         const defaultRegionId = 1;
+//         const finalRegionId = regionId || defaultRegionId;
+//         const ticketDetails = {
+//             staff_id: staffId || null,
+//             region_id: regionId === 'greater_accra' ? 1 : regionId === 'ashanti' ? 2 : regionId === 'western' ? 3 : regionId === 'eastern' ? 4 : regionId === 'central' ? 5 : regionId === 'volta' ? 6 : regionId === 'northern' ? 7 : regionId === 'upper_east' ? 8 : regionId === 'upper_west' ? 9 : 1,
+//             division_id: division === 'lvd' ? 1 : division === 'pvlmd' ? 2 : division === 'lrd' ? 3 : division === 'smd' ? 4 : division === 'corporate' ? 5 : 5,
+//             priority_id: priority === 'urgent' ? 1 : priority === 'high' ? 2 : priority === 'medium' ? 3 : 4,
+//             is_assigned: 0,
+//             assigned_userid: null,
+//             date_assigned: 'N/A',
+//             department_id: null,
+//             subject,
+//             details,
+//             complainant_name: name,
+//             complainant_number: phoneNumber,
+//             complainant_office: office,
+//             status_id: 1,
+//             open_id: userId,
+//             pin: Math.floor(1000 + Math.random() * 9000),
+//             created_by: name,
+//             date_created: new Date().toISOString(),
+//         };
+//         const jsonTicketDetails = JSON.stringify(ticketDetails);
+//         const query = `SELECT public.ticket_insert($1::text) AS result;`;
+//         console.log('Submitting ticket with JSON:', jsonTicketDetails);
+//         const result = await client.query(query, [jsonTicketDetails]);
+//         const insertResult = result.rows[0].result;
+        
+//         if (insertResult) {
+//             let verifyQuery;
+//             let verifyParams;
+//             if (userId) {
+//                 verifyQuery = `
+//                     SELECT code
+//                     FROM public.tickets
+//                     WHERE open_id = $1
+//                     AND date_created = $2
+//                     AND subject = $3
+//                     LIMIT 1;
+//                 `;
+//                 verifyParams = [userId, ticketDetails.date_created, ticketDetails.subject];
+//             } else {
+//                 verifyQuery = `
+//                     SELECT code
+//                     FROM public.tickets
+//                     WHERE open_id IS NULL
+//                     AND created_by = $1
+//                     AND date_created = $2
+//                     AND subject = $3
+//                     LIMIT 1;
+//                 `;
+//                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
+//             }
+//             const verifyResult = await client.query(verifyQuery, verifyParams);
+            
+//             if (verifyResult.rows.length > 0) {
+//                 const ticketCode = verifyResult.rows[0].code;
+//                 console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
+                
+//                 // Insert notification into notifications table (like save-checklist endpoint)
+//                 if (userId) {
+//                     await client.query(
+//                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+//                         [userId, `New ticket ${ticketCode} has been created successfully`]
+//                     );
+                    
+//                     // Send push notification
+//                     await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
+//                 }
+                
+//                 await client.query('COMMIT');
+                
+//                 return res.status(201).json({
+//                     success: true,
+//                     message: 'Ticket submitted successfully',
+//                     ticketCode,
+//                 });
+//             } else {
+//                 await client.query('ROLLBACK');
+//                 console.error('Ticket insertion failed: No ticket found in database');
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: 'Failed to submit ticket: Ticket not found in database',
+//                 });
+//             }
+//         } else {
+//             await client.query('ROLLBACK');
+//             console.error('Ticket insertion failed: Function returned false');
+//             return res.status(500).json({
+//                 success: false,
+//                 message: 'Failed to submit ticket: Database function failed',
+//             });
+//         }
+//     } catch (error) {
+//         await client.query('ROLLBACK');
+//         console.error('Error submitting ticket:', error.message);
+//         return res.status(500).json({
+//             success: false,
+//             message: 'Server error',
+//             error: error.message,
+//         });
+//     } finally {
+//         client.release();
+//     }
+// });
+
+
+// Route to submit a new ticket
 app.post('/submit-ticket', async (req, res) => {
-    const { name, division, phoneNumber, office, priority, subject, details, staffId, regionId } = req.body;
-    if (!name || !division || !phoneNumber || !office || !priority || !subject || !details) {
+    const { name, division, phoneNumber, office, priority, subject, details, staffId, region } = req.body;
+    
+    // Validate required fields
+    if (!name || !division || !phoneNumber || !office || !priority || !subject || !details || !region) {
         return res.status(400).json({ success: false, message: 'All fields are required' });
     }
+
+    // Validate staffId if provided
     if (staffId && typeof staffId !== 'string') {
         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
     }
-    if (regionId && (!Number.isInteger(regionId) || regionId <= 0)) {
-        return res.status(400).json({ success: false, message: 'Region ID must be a positive integer' });
+
+    // Region mapping
+    const regionMapping = {
+        'Greater Accra': 1,
+        'Eastern': 2,
+        'Ashanti': 3,
+        'Western': 4,
+        'Volta': 5,
+        'Oti': 6,
+        'Western North': 7,
+        'Bono': 8,
+        'Bono East': 9,
+        'Ahafo': 10,
+        'Savannah': 11,
+        'Northern': 12,
+        'North East': 13,
+        'Upper East': 14,
+        'Upper West': 15,
+        'Central': 16,
+        'Tema': 17
+    };
+
+    const regionId = regionMapping[region];
+    
+    if (!regionId) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Invalid region specified',
+            validRegions: Object.keys(regionMapping)
+        });
     }
 
     const client = await pool.connect();
@@ -936,13 +1105,18 @@ app.post('/submit-ticket', async (req, res) => {
                 console.warn('Authentication attempt failed, proceeding as unauthenticated:', error.message);
             }
         }
-        const defaultRegionId = 1;
-        const finalRegionId = regionId || defaultRegionId;
+
         const ticketDetails = {
             staff_id: staffId || null,
-            region_id: regionId === 'greater_accra' ? 1 : regionId === 'ashanti' ? 2 : regionId === 'western' ? 3 : regionId === 'eastern' ? 4 : regionId === 'central' ? 5 : regionId === 'volta' ? 6 : regionId === 'northern' ? 7 : regionId === 'upper_east' ? 8 : regionId === 'upper_west' ? 9 : 1,
-            division_id: division === 'lvd' ? 1 : division === 'pvlmd' ? 2 : division === 'lrd' ? 3 : division === 'smd' ? 4 : division === 'corporate' ? 5 : 5,
-            priority_id: priority === 'urgent' ? 1 : priority === 'high' ? 2 : priority === 'medium' ? 3 : 4,
+            region_id: regionId,
+            division_id: division === 'lvd' ? 1 : 
+                        division === 'pvlmd' ? 2 : 
+                        division === 'lrd' ? 3 : 
+                        division === 'smd' ? 4 : 
+                        division === 'corporate' ? 5 : 5,
+            priority_id: priority === 'urgent' ? 1 : 
+                       priority === 'high' ? 2 : 
+                       priority === 'medium' ? 3 : 4,
             is_assigned: 0,
             assigned_userid: null,
             date_assigned: 'N/A',
@@ -958,6 +1132,7 @@ app.post('/submit-ticket', async (req, res) => {
             created_by: name,
             date_created: new Date().toISOString(),
         };
+
         const jsonTicketDetails = JSON.stringify(ticketDetails);
         const query = `SELECT public.ticket_insert($1::text) AS result;`;
         console.log('Submitting ticket with JSON:', jsonTicketDetails);
@@ -995,7 +1170,7 @@ app.post('/submit-ticket', async (req, res) => {
                 const ticketCode = verifyResult.rows[0].code;
                 console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
                 
-                // Insert notification into notifications table (like save-checklist endpoint)
+                // Insert notification
                 if (userId) {
                     await client.query(
                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
