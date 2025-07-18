@@ -3651,6 +3651,173 @@ app.post("/tickets/assign", authenticateUser, async (req, res) => {
     }
 });
 
+// // Route to assign a ticket to a department
+// app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
+//     const client = await pool.connect();
+//     try {
+//         await client.query('BEGIN');
+        
+//         const assigningUserId = req.userId;
+//         const {
+//             code,
+//             priority_id,
+//             department_id,
+//             date_assigned,
+//             status_id
+//         } = req.body;
+        
+//         if (!code || !priority_id || !department_id) {
+//             await client.query('ROLLBACK');
+//             return res.status(400).json({ 
+//                 message: "Missing required fields: code, priority_id, department_id" 
+//             });
+//         }
+
+//         // Validate department exists
+//         const deptCheck = await client.query(
+//             'SELECT dept_name FROM departments WHERE id = $1',
+//             [department_id]
+//         );
+        
+//         if (deptCheck.rows.length === 0) {
+//             await client.query('ROLLBACK');
+//             return res.status(400).json({ 
+//                 message: "Invalid department_id provided" 
+//             });
+//         }
+        
+//         const departmentName = deptCheck.rows[0].dept_name;
+
+//         // Prepare ticket details for department assignment
+//         const ticketDetails = {
+//             code,
+//             priority_id,
+//             department_id,
+//             date_assigned: date_assigned || new Date().toISOString().split('T')[0],
+//             status_id: status_id || 1, // Assuming 1 is "assigned" status
+//             is_assigned: 1, // Mark as assigned
+//             assigned_userid: null, // No specific user assigned
+//             assigned_groupid: null, // Could be used for department if needed
+//             last_updated_by: assigningUserId,
+//             // Add other required fields that might be needed
+//             region_id: null,
+//             division_id: null,
+//             subject: null,
+//             details: null,
+//             complainant_name: null,
+//             complainant_number: null,
+//             complainant_office: null
+//         };
+
+//         // Use the ticket_update function to update the ticket
+//         const query = `SELECT ticket_update($1::text) AS result;`;
+//         const result = await client.query(query, [JSON.stringify(ticketDetails)]);
+//         const updateResult = result.rows[0].result;
+
+//         if (updateResult === true) {
+//             // Get all users in the assigned department
+//             const departmentUsersQuery = await client.query(
+//                 'SELECT id, first_name, surname, email, phone FROM users WHERE department_id = $1 AND status = $2',
+//                 [department_id, 'active']
+//             );
+            
+//             const departmentUsers = departmentUsersQuery.rows;
+            
+//             if (departmentUsers.length === 0) {
+//                 await client.query('ROLLBACK');
+//                 return res.status(400).json({ 
+//                     message: `No active users found in department: ${departmentName}` 
+//                 });
+//             }
+
+//             // Insert notifications for all department users
+//             const notificationPromises = [];
+//             const userIds = [];
+            
+//             // Notify all users in the department
+//             departmentUsers.forEach(user => {
+//                 notificationPromises.push(
+//                     client.query(
+//                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+//                         [user.id, `A ticket ${code} has been assigned to your department (${departmentName}). Please work on it as soon as possible.`]
+//                     )
+//                 );
+//                 userIds.push(user.id);
+//             });
+            
+//             // Notify the assigning user (admin/manager)
+//             notificationPromises.push(
+//                 client.query(
+//                     'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+//                     [assigningUserId, `Successfully assigned ticket ${code} to ${departmentName} department`]
+//                 )
+//             );
+            
+//             // Get ticket creator to notify them too
+//             const creatorQuery = await client.query(
+//                 'SELECT open_id FROM tickets WHERE code = $1',
+//                 [code]
+//             );
+            
+//             if (creatorQuery.rows.length > 0 && creatorQuery.rows[0].open_id) {
+//                 const creatorId = creatorQuery.rows[0].open_id;
+//                 if (creatorId !== assigningUserId && !userIds.includes(creatorId)) {
+//                     notificationPromises.push(
+//                         client.query(
+//                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+//                             [creatorId, `Your ticket ${code} has been assigned to ${departmentName} department for resolution`]
+//                         )
+//                     );
+//                 }
+//             }
+            
+//             // Execute all notification insertions
+//             await Promise.all(notificationPromises);
+            
+//             // Send push notifications to all department users
+//             await notifyUsers(
+//                 userIds, 
+//                 'Department Ticket Assignment', 
+//                 `Ticket ${code} has been assigned to your department (${departmentName}). Please work on it ASAP.`, 
+//                 { ticketId: code, department: departmentName }
+//             );
+            
+//             await client.query('COMMIT');
+            
+//             res.status(200).json({
+//                 message: "Ticket assigned to department successfully",
+//                 ticket: {
+//                     code,
+//                     department_id,
+//                     department_name: departmentName,
+//                     priority_id,
+//                     date_assigned: ticketDetails.date_assigned,
+//                     status_id: ticketDetails.status_id,
+//                     assigned_users_count: departmentUsers.length
+//                 },
+//                 notified_users: departmentUsers.map(user => ({
+//                     id: user.id,
+//                     name: `${user.first_name} ${user.surname}`,
+//                     email: user.email,
+//                     phone: user.phone
+//                 }))
+//             });
+//         } else {
+//             await client.query('ROLLBACK');
+//             return res.status(500).json({ message: "Failed to assign ticket to department" });
+//         }
+//     } catch (error) {
+//         await client.query('ROLLBACK');
+//         console.error("Error assigning ticket to department:", error);
+//         res.status(500).json({
+//             message: "Error assigning ticket to department",
+//             error: error.message
+//         });
+//     } finally {
+//         client.release();
+//     }
+// });
+
 // Route to assign a ticket to a department
 app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
     const client = await pool.connect();
@@ -3663,7 +3830,9 @@ app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
             priority_id,
             department_id,
             date_assigned,
-            status_id
+            status_id,
+            region_id,  // Add this to handle region_id
+            division_id // Add this to handle division_id
         } = req.body;
         
         if (!code || !priority_id || !department_id) {
@@ -3672,6 +3841,21 @@ app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
                 message: "Missing required fields: code, priority_id, department_id" 
             });
         }
+
+        // Get the existing ticket to preserve current values
+        const existingTicketQuery = await client.query(
+            'SELECT * FROM tickets WHERE code = $1',
+            [code]
+        );
+        
+        if (existingTicketQuery.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ 
+                message: "Ticket not found" 
+            });
+        }
+        
+        const existingTicket = existingTicketQuery.rows[0];
 
         // Validate department exists
         const deptCheck = await client.query(
@@ -3689,6 +3873,7 @@ app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
         const departmentName = deptCheck.rows[0].dept_name;
 
         // Prepare ticket details for department assignment
+        // Preserve existing values for required fields if not provided
         const ticketDetails = {
             code,
             priority_id,
@@ -3696,17 +3881,17 @@ app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
             date_assigned: date_assigned || new Date().toISOString().split('T')[0],
             status_id: status_id || 1, // Assuming 1 is "assigned" status
             is_assigned: 1, // Mark as assigned
-            assigned_userid: null, // No specific user assigned
+            assigned_userid: null, // No specific user assigned for department assignment
             assigned_groupid: null, // Could be used for department if needed
             last_updated_by: assigningUserId,
-            // Add other required fields that might be needed
-            region_id: null,
-            division_id: null,
-            subject: null,
-            details: null,
-            complainant_name: null,
-            complainant_number: null,
-            complainant_office: null
+            // Preserve existing values for required fields
+            region_id: region_id || existingTicket.region_id, // Use existing region_id if not provided
+            division_id: division_id || existingTicket.division_id, // Use existing division_id if not provided
+            subject: existingTicket.subject,
+            details: existingTicket.details,
+            complainant_name: existingTicket.complainant_name,
+            complainant_number: existingTicket.complainant_number,
+            complainant_office: existingTicket.complainant_office
         };
 
         // Use the ticket_update function to update the ticket
@@ -3793,7 +3978,9 @@ app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
                     priority_id,
                     date_assigned: ticketDetails.date_assigned,
                     status_id: ticketDetails.status_id,
-                    assigned_users_count: departmentUsers.length
+                    assigned_users_count: departmentUsers.length,
+                    region_id: ticketDetails.region_id,
+                    division_id: ticketDetails.division_id
                 },
                 notified_users: departmentUsers.map(user => ({
                     id: user.id,
