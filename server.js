@@ -1528,6 +1528,503 @@ app.get("/tickets/trends", authenticateUser, async (req, res) => {
 //     }
 // });
 
+// // Route to submit a new ticket
+// app.post('/submit-ticket', async (req, res) => {
+//     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+//     const startTime = Date.now();
+    
+//     console.log(`[${requestId}] Ticket submission request started`, {
+//         timestamp: new Date().toISOString(),
+//         ip: req.ip || req.connection.remoteAddress,
+//         userAgent: req.get('User-Agent'),
+//         hasAuth: !!req.headers.authorization
+//     });
+
+//     const { name, division, phoneNumber, office, priority, subject, details, staffId, region } = req.body;
+    
+//     // Log request payload (sanitized)
+//     console.log(`[${requestId}] Request payload received`, {
+//         name: name ? '[REDACTED]' : undefined,
+//         division,
+//         phoneNumber: phoneNumber ? '[REDACTED]' : undefined,
+//         office,
+//         priority,
+//         subject: subject ? subject.substring(0, 50) + '...' : undefined,
+//         detailsLength: details ? details.length : 0,
+//         staffId: staffId ? '[REDACTED]' : undefined,
+//         region
+//     });
+    
+//     // Validate required fields
+//     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details || !region) {
+//         const missingFields = [];
+//         if (!name) missingFields.push('name');
+//         if (!division) missingFields.push('division');
+//         if (!phoneNumber) missingFields.push('phoneNumber');
+//         if (!office) missingFields.push('office');
+//         if (!priority) missingFields.push('priority');
+//         if (!subject) missingFields.push('subject');
+//         if (!details) missingFields.push('details');
+//         if (!region) missingFields.push('region');
+        
+//         console.warn(`[${requestId}] Validation failed - missing required fields`, {
+//             missingFields,
+//             duration: Date.now() - startTime
+//         });
+        
+//         return res.status(400).json({ success: false, message: 'All fields are required' });
+//     }
+
+//     // Validate staffId if provided
+//     if (staffId && typeof staffId !== 'string') {
+//         console.warn(`[${requestId}] Validation failed - invalid staffId type`, {
+//             staffIdType: typeof staffId,
+//             duration: Date.now() - startTime
+//         });
+//         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
+//     }
+
+//     // Validate subject and details length to prevent database issues
+//     if (subject.length > 255) {
+//         console.warn(`[${requestId}] Validation failed - subject too long`, {
+//             subjectLength: subject.length,
+//             duration: Date.now() - startTime
+//         });
+//         return res.status(400).json({ success: false, message: 'Subject must be 255 characters or less' });
+//     }
+
+//     if (details.length > 5000) {
+//         console.warn(`[${requestId}] Validation failed - details too long`, {
+//             detailsLength: details.length,
+//             duration: Date.now() - startTime
+//         });
+//         return res.status(400).json({ success: false, message: 'Details must be 5000 characters or less' });
+//     }
+
+//     // Region mapping
+//     const regionMapping = {
+//         'Greater Accra': 1,
+//         'Eastern': 2,
+//         'Ashanti': 3,
+//         'Western': 4,
+//         'Volta': 5,
+//         'Oti': 6,
+//         'Western North': 7,
+//         'Bono': 8,
+//         'Bono East': 9,
+//         'Ahafo': 10,
+//         'Savannah': 11,
+//         'Northern': 12,
+//         'North East': 13,
+//         'Upper East': 14,
+//         'Upper West': 15,
+//         'Central': 16,
+//         'Tema': 17
+//     };
+
+//     const regionId = regionMapping[region];
+    
+//     if (!regionId) {
+//         console.warn(`[${requestId}] Validation failed - invalid region`, {
+//             providedRegion: region,
+//             validRegions: Object.keys(regionMapping),
+//             duration: Date.now() - startTime
+//         });
+        
+//         return res.status(400).json({ 
+//             success: false, 
+//             message: 'Invalid region specified',
+//             validRegions: Object.keys(regionMapping)
+//         });
+//     }
+
+//     // Division mapping with validation
+//     const divisionMapping = {
+//         'lvd': 1,
+//         'pvlmd': 2,
+//         'lrd': 3,
+//         'smd': 4,
+//         'corporate': 5
+//     };
+
+//     const divisionId = divisionMapping[division.toLowerCase()];
+//     if (!divisionId) {
+//         console.warn(`[${requestId}] Validation failed - invalid division`, {
+//             providedDivision: division,
+//             validDivisions: Object.keys(divisionMapping),
+//             duration: Date.now() - startTime
+//         });
+        
+//         return res.status(400).json({ 
+//             success: false, 
+//             message: 'Invalid division specified',
+//             validDivisions: Object.keys(divisionMapping)
+//         });
+//     }
+
+//     // Priority mapping with validation
+//     const priorityMapping = {
+//         'urgent': 1,
+//         'high': 2,
+//         'medium': 3,
+//         'low': 4
+//     };
+
+//     const priorityId = priorityMapping[priority.toLowerCase()];
+//     if (!priorityId) {
+//         console.warn(`[${requestId}] Validation failed - invalid priority`, {
+//             providedPriority: priority,
+//             validPriorities: Object.keys(priorityMapping),
+//             duration: Date.now() - startTime
+//         });
+        
+//         return res.status(400).json({ 
+//             success: false, 
+//             message: 'Invalid priority specified',
+//             validPriorities: Object.keys(priorityMapping)
+//         });
+//     }
+
+//     console.log(`[${requestId}] Validation passed, attempting database connection`);
+
+//     const client = await pool.connect();
+//     try {
+//         console.log(`[${requestId}] Database connection established, beginning transaction`);
+//         await client.query('BEGIN');
+        
+//         let userId = null;
+//         if (req.headers.authorization) {
+//             console.log(`[${requestId}] Processing authentication token`);
+//             try {
+//                 const authHeader = req.headers.authorization;
+//                 if (authHeader.startsWith('Bearer ')) {
+//                     const token = authHeader.split(' ')[1];
+//                     const decoded = verify(token, process.env.JWT_SECRET);
+//                     userId = decoded.userId;
+//                     console.log(`[${requestId}] Authentication successful`, { userId });
+//                 } else {
+//                     console.warn(`[${requestId}] Invalid authorization header format`);
+//                 }
+//             } catch (error) {
+//                 console.warn(`[${requestId}] Authentication attempt failed, proceeding as unauthenticated`, {
+//                     error: error.message,
+//                     errorType: error.name
+//                 });
+//             }
+//         } else {
+//             console.log(`[${requestId}] No authentication header provided, proceeding as unauthenticated`);
+//         }
+
+//         // Validate that region and division exist in the database
+//         console.log(`[${requestId}] Validating region and division in database`);
+//         const regionValidation = await client.query('SELECT region_code FROM regions WHERE id = $1', [regionId]);
+//         const divisionValidation = await client.query('SELECT division_code FROM divisions WHERE id = $1', [divisionId]);
+
+//         if (regionValidation.rows.length === 0) {
+//             console.error(`[${requestId}] Region validation failed - region not found in database`, {
+//                 regionId,
+//                 duration: Date.now() - startTime
+//             });
+//             await client.query('ROLLBACK');
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Invalid region - region not found in database',
+//             });
+//         }
+
+//         if (divisionValidation.rows.length === 0) {
+//             console.error(`[${requestId}] Division validation failed - division not found in database`, {
+//                 divisionId,
+//                 duration: Date.now() - startTime
+//             });
+//             await client.query('ROLLBACK');
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Invalid division - division not found in database',
+//             });
+//         }
+
+//         console.log(`[${requestId}] Database validation successful`, {
+//             regionCode: regionValidation.rows[0].region_code,
+//             divisionCode: divisionValidation.rows[0].division_code
+//         });
+
+//         // Generate a more robust PIN
+//         const pin = Math.floor(1000 + Math.random() * 9000);
+//         const currentDateTime = new Date().toISOString();
+
+//         const ticketDetails = {
+//             staff_id: staffId || null,
+//             region_id: regionId,
+//             division_id: divisionId,
+//             priority_id: priorityId,
+//             is_assigned: 0,
+//             assigned_userid: null,
+//             date_assigned: 'N/A',
+//             department_id: null,
+//             subject: subject.trim(),
+//             details: details.trim(),
+//             complainant_name: name.trim(),
+//             complainant_number: phoneNumber.trim(),
+//             complainant_office: office.trim(),
+//             status_id: 1,
+//             open_id: userId,
+//             pin: pin,
+//             created_by: name.trim(),
+//             date_created: currentDateTime,
+//         };
+
+//         console.log(`[${requestId}] Ticket details prepared`, {
+//             regionId: ticketDetails.region_id,
+//             divisionId: ticketDetails.division_id,
+//             priorityId: ticketDetails.priority_id,
+//             hasUserId: !!ticketDetails.open_id,
+//             pin: ticketDetails.pin,
+//             subjectLength: ticketDetails.subject.length,
+//             detailsLength: ticketDetails.details.length
+//         });
+
+//         // Add retry logic for the database function call
+//         const maxRetries = 3;
+//         let insertResult = null;
+//         let retryCount = 0;
+
+//         while (retryCount < maxRetries) {
+//             try {
+//                 const jsonTicketDetails = JSON.stringify(ticketDetails);
+//                 const query = `SELECT public.ticket_insert($1::text) AS result;`;
+                
+//                 console.log(`[${requestId}] Executing ticket insertion (attempt ${retryCount + 1})`, {
+//                     queryFunction: 'public.ticket_insert',
+//                     payloadSize: jsonTicketDetails.length,
+//                     attempt: retryCount + 1
+//                 });
+                
+//                 const result = await client.query(query, [jsonTicketDetails]);
+//                 insertResult = result.rows[0].result;
+                
+//                 console.log(`[${requestId}] Ticket insertion function result`, {
+//                     success: !!insertResult,
+//                     result: insertResult,
+//                     attempt: retryCount + 1
+//                 });
+
+//                 if (insertResult) {
+//                     break; // Success, exit retry loop
+//                 }
+
+//                 retryCount++;
+//                 if (retryCount < maxRetries) {
+//                     console.log(`[${requestId}] Retrying ticket insertion`, { attempt: retryCount + 1 });
+//                     await new Promise(resolve => setTimeout(resolve, 100 * retryCount)); // Exponential backoff
+//                 }
+//             } catch (error) {
+//                 console.error(`[${requestId}] Error in ticket insertion attempt ${retryCount + 1}`, {
+//                     error: error.message,
+//                     attempt: retryCount + 1
+//                 });
+                
+//                 retryCount++;
+//                 if (retryCount >= maxRetries) {
+//                     throw error;
+//                 }
+                
+//                 await new Promise(resolve => setTimeout(resolve, 100 * retryCount)); // Exponential backoff
+//             }
+//         }
+        
+//         if (insertResult) {
+//             // Enhanced verification with multiple methods
+//             let verifyQuery;
+//             let verifyParams;
+//             let ticketCode = null;
+            
+//             // Method 1: Try to find by unique combination of fields
+//             console.log(`[${requestId}] Attempting ticket verification method 1 - by unique fields`);
+            
+//             if (userId) {
+//                 verifyQuery = `
+//                     SELECT code, id
+//                     FROM public.tickets
+//                     WHERE open_id = $1
+//                     AND subject = $2
+//                     AND complainant_name = $3
+//                     AND pin = $4
+//                     AND region_id = $5
+//                     AND division_id = $6
+//                     ORDER BY id DESC
+//                     LIMIT 1;
+//                 `;
+//                 verifyParams = [userId, ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.pin, ticketDetails.region_id, ticketDetails.division_id];
+//             } else {
+//                 verifyQuery = `
+//                     SELECT code, id
+//                     FROM public.tickets
+//                     WHERE open_id IS NULL
+//                     AND subject = $1
+//                     AND complainant_name = $2
+//                     AND pin = $3
+//                     AND region_id = $4
+//                     AND division_id = $5
+//                     AND created_by = $6
+//                     ORDER BY id DESC
+//                     LIMIT 1;
+//                 `;
+//                 verifyParams = [ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.pin, ticketDetails.region_id, ticketDetails.division_id, ticketDetails.created_by];
+//             }
+            
+//             let verifyResult = await client.query(verifyQuery, verifyParams);
+            
+//             if (verifyResult.rows.length > 0) {
+//                 ticketCode = verifyResult.rows[0].code;
+//                 console.log(`[${requestId}] Ticket verification method 1 successful`, {
+//                     ticketCode,
+//                     ticketId: verifyResult.rows[0].id
+//                 });
+//             } else {
+//                 // Method 2: Try to find by PIN and recent timestamp (fallback)
+//                 console.log(`[${requestId}] Attempting ticket verification method 2 - by PIN and recent timestamp`);
+                
+//                 verifyQuery = `
+//                     SELECT code, id
+//                     FROM public.tickets
+//                     WHERE pin = $1
+//                     AND subject = $2
+//                     AND complainant_name = $3
+//                     AND region_id = $4
+//                     AND division_id = $5
+//                     AND date_created >= $6
+//                     ORDER BY id DESC
+//                     LIMIT 1;
+//                 `;
+                
+//                 // Look for tickets created in the last 5 minutes
+//                 const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+//                 verifyParams = [ticketDetails.pin, ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.region_id, ticketDetails.division_id, recentTime];
+                
+//                 verifyResult = await client.query(verifyQuery, verifyParams);
+                
+//                 if (verifyResult.rows.length > 0) {
+//                     ticketCode = verifyResult.rows[0].code;
+//                     console.log(`[${requestId}] Ticket verification method 2 successful`, {
+//                         ticketCode,
+//                         ticketId: verifyResult.rows[0].id
+//                     });
+//                 }
+//             }
+            
+//             if (ticketCode) {
+//                 console.log(`[${requestId}] Ticket created successfully`, {
+//                     ticketCode,
+//                     verificationMethod: userId ? 'authenticated' : 'unauthenticated'
+//                 });
+                
+//                 // Insert notification
+//                 if (userId) {
+//                     console.log(`[${requestId}] Creating notification for user`, { userId });
+//                     try {
+//                         await client.query(
+//                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+//                             [userId, `New ticket ${ticketCode} has been created successfully`]
+//                         );
+//                         console.log(`[${requestId}] Notification inserted successfully`);
+                        
+//                         // Send push notification
+//                         console.log(`[${requestId}] Sending push notification`);
+//                         await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
+//                         console.log(`[${requestId}] Push notification sent successfully`);
+//                     } catch (notificationError) {
+//                         console.error(`[${requestId}] Failed to create notification/push`, {
+//                             error: notificationError.message,
+//                             userId,
+//                             ticketCode
+//                         });
+//                         // Don't fail the entire request for notification issues
+//                     }
+//                 } else {
+//                     console.log(`[${requestId}] Skipping notification - no authenticated user`);
+//                 }
+                
+//                 console.log(`[${requestId}] Committing transaction`);
+//                 await client.query('COMMIT');
+                
+//                 console.log(`[${requestId}] Ticket submission completed successfully`, {
+//                     ticketCode,
+//                     duration: Date.now() - startTime,
+//                     hasNotifications: !!userId
+//                 });
+                
+//                 return res.status(201).json({
+//                     success: true,
+//                     message: 'Ticket submitted successfully',
+//                     ticketCode,
+//                     pin: ticketDetails.pin, // Include PIN for user reference
+//                 });
+//             } else {
+//                 console.error(`[${requestId}] Ticket verification failed - no ticket found in database after insertion`, {
+//                     pin: ticketDetails.pin,
+//                     subject: ticketDetails.subject,
+//                     complainantName: ticketDetails.complainant_name,
+//                     regionId: ticketDetails.region_id,
+//                     divisionId: ticketDetails.division_id,
+//                     duration: Date.now() - startTime
+//                 });
+                
+//                 await client.query('ROLLBACK');
+//                 return res.status(500).json({
+//                     success: false,
+//                     message: 'Failed to submit ticket: Unable to verify ticket creation in database',
+//                 });
+//             }
+//         } else {
+//             console.error(`[${requestId}] Ticket insertion function returned false after all retries`, {
+//                 functionResult: insertResult,
+//                 retriesAttempted: retryCount,
+//                 duration: Date.now() - startTime
+//             });
+            
+//             await client.query('ROLLBACK');
+//             return res.status(500).json({
+//                 success: false,
+//                 message: 'Failed to submit ticket: Database function failed after retries',
+//             });
+//         }
+//     } catch (error) {
+//         console.error(`[${requestId}] Error during ticket submission`, {
+//             error: error.message,
+//             errorType: error.name,
+//             stack: error.stack,
+//             duration: Date.now() - startTime
+//         });
+        
+//         try {
+//             await client.query('ROLLBACK');
+//             console.log(`[${requestId}] Transaction rolled back successfully`);
+//         } catch (rollbackError) {
+//             console.error(`[${requestId}] Failed to rollback transaction`, {
+//                 rollbackError: rollbackError.message
+//             });
+//         }
+        
+//         return res.status(500).json({
+//             success: false,
+//             message: 'Server error during ticket submission',
+//             error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+//         });
+//     } finally {
+//         try {
+//             client.release();
+//             console.log(`[${requestId}] Database connection released`, {
+//                 totalDuration: Date.now() - startTime
+//             });
+//         } catch (releaseError) {
+//             console.error(`[${requestId}] Failed to release database connection`, {
+//                 error: releaseError.message
+//             });
+//         }
+//     }
+// });
+
 // Route to submit a new ticket
 app.post('/submit-ticket', async (req, res) => {
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -1839,7 +2336,7 @@ app.post('/submit-ticket', async (req, res) => {
             let verifyParams;
             let ticketCode = null;
             
-            // Method 1: Try to find by unique combination of fields
+            // Method 1: Try to find by unique combination of fields (without PIN)
             console.log(`[${requestId}] Attempting ticket verification method 1 - by unique fields`);
             
             if (userId) {
@@ -1849,13 +2346,13 @@ app.post('/submit-ticket', async (req, res) => {
                     WHERE open_id = $1
                     AND subject = $2
                     AND complainant_name = $3
-                    AND pin = $4
-                    AND region_id = $5
-                    AND division_id = $6
+                    AND region_id = $4
+                    AND division_id = $5
+                    AND priority_id = $6
                     ORDER BY id DESC
                     LIMIT 1;
                 `;
-                verifyParams = [userId, ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.pin, ticketDetails.region_id, ticketDetails.division_id];
+                verifyParams = [userId, ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.region_id, ticketDetails.division_id, ticketDetails.priority_id];
             } else {
                 verifyQuery = `
                     SELECT code, id
@@ -1863,14 +2360,14 @@ app.post('/submit-ticket', async (req, res) => {
                     WHERE open_id IS NULL
                     AND subject = $1
                     AND complainant_name = $2
-                    AND pin = $3
-                    AND region_id = $4
-                    AND division_id = $5
+                    AND region_id = $3
+                    AND division_id = $4
+                    AND priority_id = $5
                     AND created_by = $6
                     ORDER BY id DESC
                     LIMIT 1;
                 `;
-                verifyParams = [ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.pin, ticketDetails.region_id, ticketDetails.division_id, ticketDetails.created_by];
+                verifyParams = [ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.region_id, ticketDetails.division_id, ticketDetails.priority_id, ticketDetails.created_by];
             }
             
             let verifyResult = await client.query(verifyQuery, verifyParams);
@@ -1882,17 +2379,17 @@ app.post('/submit-ticket', async (req, res) => {
                     ticketId: verifyResult.rows[0].id
                 });
             } else {
-                // Method 2: Try to find by PIN and recent timestamp (fallback)
-                console.log(`[${requestId}] Attempting ticket verification method 2 - by PIN and recent timestamp`);
+                // Method 2: Try to find by recent timestamp and other details (fallback)
+                console.log(`[${requestId}] Attempting ticket verification method 2 - by recent timestamp and details`);
                 
                 verifyQuery = `
                     SELECT code, id
                     FROM public.tickets
-                    WHERE pin = $1
-                    AND subject = $2
-                    AND complainant_name = $3
-                    AND region_id = $4
-                    AND division_id = $5
+                    WHERE subject = $1
+                    AND complainant_name = $2
+                    AND region_id = $3
+                    AND division_id = $4
+                    AND priority_id = $5
                     AND date_created >= $6
                     ORDER BY id DESC
                     LIMIT 1;
@@ -1900,7 +2397,7 @@ app.post('/submit-ticket', async (req, res) => {
                 
                 // Look for tickets created in the last 5 minutes
                 const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-                verifyParams = [ticketDetails.pin, ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.region_id, ticketDetails.division_id, recentTime];
+                verifyParams = [ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.region_id, ticketDetails.division_id, ticketDetails.priority_id, recentTime];
                 
                 verifyResult = await client.query(verifyQuery, verifyParams);
                 
@@ -1962,11 +2459,11 @@ app.post('/submit-ticket', async (req, res) => {
                 });
             } else {
                 console.error(`[${requestId}] Ticket verification failed - no ticket found in database after insertion`, {
-                    pin: ticketDetails.pin,
                     subject: ticketDetails.subject,
                     complainantName: ticketDetails.complainant_name,
                     regionId: ticketDetails.region_id,
                     divisionId: ticketDetails.division_id,
+                    priorityId: ticketDetails.priority_id,
                     duration: Date.now() - startTime
                 });
                 
