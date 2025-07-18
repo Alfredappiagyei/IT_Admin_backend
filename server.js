@@ -3879,7 +3879,7 @@ app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
             priority_id,
             department_id,
             date_assigned: date_assigned || new Date().toISOString().split('T')[0],
-            status_id: status_id || 1, // Assuming 1 is "assigned" status
+            status_id: status_id, // Assuming 1 is "assigned" status
             is_assigned: 1, // Mark as assigned
             assigned_userid: null, // No specific user assigned for department assignment
             assigned_groupid: null, // Could be used for department if needed
@@ -3903,7 +3903,7 @@ app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
             // Get all users in the assigned department
             const departmentUsersQuery = await client.query(
                 'SELECT id, first_name, surname, email, phone FROM users WHERE department_id = $1 AND status = $2',
-                [department_id, 'active']
+                [department_id, '1']
             );
             
             const departmentUsers = departmentUsersQuery.rows;
