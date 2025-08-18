@@ -214,263 +214,12 @@ const notifyUsers = async (userIds, title, body, data = {}) => {
     }
 };
 
-// // Function to get all checklist records
-// const createGetRecordsFunction = async () => {
-//   await pool.query(`
-//   CREATE OR REPLACE FUNCTION get_checklist_records()
-// RETURNS TABLE (
-//   id INTEGER,
-//   user_id INTEGER,
-//   location_id INTEGER,
-//   data JSONB,
-//   created_at TIMESTAMP,
-//   username TEXT
-// ) AS $$
-// BEGIN
-//   RETURN QUERY
-//   SELECT
-//     cr.id,
-//     cr.user_id,
-//     cr.location_id,
-//     cr.data,
-//     cr.created_at,
-//     u.username
-//   FROM checklist_records cr
-//   JOIN users u ON cr.user_id = u.user_id
-//   ORDER BY cr.created_at DESC;
-// END;
-// $$ LANGUAGE plpgsql;
-//   `);
-// };
-
-// // Function to get all locations
-// const createGetLocationsFunction = async () => {
-//   await pool.query(`
-//     CREATE OR REPLACE FUNCTION get_locations()
-// RETURNS TABLE (
-//   location_id INTEGER,
-//   name TEXT,
-//   region_id INTEGER
-// ) AS $$
-// BEGIN
-//   RETURN QUERY
-//   SELECT
-//     l.location_id,
-//     l.name,
-//     l.region_id
-//   FROM locations l
-//   ORDER BY l.location_id;
-// END;
-// $$ LANGUAGE plpgsql;
-//   `);
-// };
-
-// // Function to get all categories
-// const createGetCategoriesFunction = async () => {
-//   await pool.query(`
-//     CREATE OR REPLACE FUNCTION get_categories()
-// RETURNS TABLE (
-//   category_id INTEGER,
-//   name TEXT,
-//   description TEXT
-// ) AS $$
-// BEGIN
-//   RETURN QUERY
-//   SELECT
-//     c.category_id,
-//     c.name,
-//     c.description
-//   FROM categories c
-//   ORDER BY c.name;
-// END;
-// $$ LANGUAGE plpgsql;
-//   `);
-// };
-
-// // Function to get all checklist items
-// const createGetChecklistItemsFunction = async () => {
-//   await pool.query(`
-//    CREATE OR REPLACE FUNCTION get_checklist_items()
-// RETURNS TABLE (
-//   item_id INTEGER,
-//   category_id INTEGER,
-//   name TEXT,
-//   description TEXT
-// ) AS $$
-// BEGIN
-//   RETURN QUERY
-//   SELECT
-//     ci.item_id,
-//     ci.category_id,
-//     ci.name,
-//     ci.description
-//   FROM checklist_items ci
-//   ORDER BY ci.category_id, ci.name;
-// END;
-// $$ LANGUAGE plpgsql;
-//   `);
-// };
-
-// // Function to save checklist responses
-// const createSaveChecklistFunction = async () => {
-//   await pool.query(`
-//     CREATE OR REPLACE FUNCTION save_checklist(
-//   p_user_id INTEGER,
-//   p_location_id INTEGER,
-//   p_username TEXT,
-//   p_responses JSONB
-// )
-// RETURNS VOID AS $$
-// DECLARE
-//   response JSONB;
-//   item_id INTEGER;
-//   status TEXT;
-//   comment TEXT;
-//   category_name TEXT;
-//   item_description TEXT;
-//   today_date DATE := CURRENT_DATE;
-// BEGIN
-//   -- Check if location has submissions for today
-//   IF EXISTS (
-//     SELECT 1
-//     FROM checklist_records cr
-//     WHERE cr.location_id = p_location_id
-//     AND DATE(cr.created_at) = today_date
-//     AND cr.data->>'categoryName' IN (
-//       SELECT name FROM categories
-//     )
-//     GROUP BY cr.location_id
-//     HAVING COUNT(DISTINCT cr.data->>'categoryName') = (SELECT COUNT(*) FROM categories)
-//   ) THEN
-//     RAISE EXCEPTION 'Location % has already been fully submitted for today', p_location_id;
-//   END IF;
-
-//   -- Loop through responses
-//   FOR response IN SELECT jsonb_array_elements(p_responses)
-//   LOOP
-//     item_id := (response->>'item_id')::INTEGER;
-//     status := response->>'status';
-//     comment := response->>'comment';
-
-//     -- Get category name and item description
-//     SELECT c.name, ci.description
-//     INTO category_name, item_description
-//     FROM checklist_items ci
-//     JOIN categories c ON ci.category_id = c.category_id
-//     WHERE ci.item_id = item_id;
-
-//     -- Insert record
-//     INSERT INTO checklist_records (
-//       user_id,
-//       location_id,
-//       data,
-//       created_at,
-//       username
-//     ) VALUES (
-//       p_user_id,
-//       p_location_id,
-//       jsonb_build_object(
-//         'itemId', item_id,
-//         'status', status,
-//         'comment', comment,
-//         'categoryName', category_name,
-//         'itemDescription', item_description
-//       ),
-//       CURRENT_TIMESTAMP,
-//       p_username
-//     );
-//   END LOOP;
-// END;
-// $$ LANGUAGE plpgsql;
-//   `);
-// };
-
-// // Function to get user-specific records
-// const createGetUserRecordsFunction = async () => {
-//   await pool.query(`
-//     CREATE OR REPLACE FUNCTION get_user_records(p_user_id INTEGER)
-// RETURNS TABLE (
-//   id INTEGER,
-//   user_id INTEGER,
-//   location_id INTEGER,
-//   location_name TEXT,
-//   data JSONB,
-//   created_at TIMESTAMP
-// ) AS $$
-// BEGIN
-//   RETURN QUERY
-//   SELECT
-//     cr.id,
-//     cr.user_id,
-//     cr.location_id,
-//     l.name AS location_name,
-//     cr.data,
-//     cr.created_at
-//   FROM checklist_records cr
-//   JOIN locations l ON cr.location_id = l.location_id
-//   WHERE cr.user_id = p_user_id
-//   ORDER BY cr.created_at DESC;
-// END;
-// $$ LANGUAGE plpgsql;
-//   `);
-// };
-
-// // Initialize stored functions
-// const initializeFunctions = async () => {
-//   try {
-//     await createGetRecordsFunction();
-//     await createGetLocationsFunction();
-//     await createGetCategoriesFunction();
-//     await createGetChecklistItemsFunction();
-//     await createSaveChecklistFunction();
-//     await createGetUserRecordsFunction();
-//     console.log('Stored functions initialized successfully');
-//   } catch (error) {
-//     console.error('Error initializing stored functions:', error.message);
-//   }
-// };
-
-// // Call initialization (run once during server startup)
-// initializeFunctions().catch(err => console.error('Initialization error:', err));
 
 // Add root route
 app.get('/', (req, res) => {
   res.json({ message: 'Welcome to the IT Admin Backend!' });
 });
 
-// // Login route to authenticate users
-// app.post("/login", async (req, res) => {
-//     const { username, password } = req.body;
-
-//     try {
-//         const hashedPassword = hashPassword(password);
-//         console.log(`Hashed Password: ${hashedPassword}`);
-
-//         const query = `SELECT login('{"username": "${username}", "password": "${hashedPassword}"}');`;
-//         console.log(`QUERY: ${query}\n`);
-//         const result = await pool.query(query);
-
-//         if (result.rows.length === 0) {
-//             return res.status(401).json({ message: "Invalid credentials" });
-//         }
-
-//         const user = result.rows[0];
-//         console.log(user.login);
-//         const loginResult = JSON.parse(user.login);
-//         const passwordMatch = loginResult?.success;
-
-//         if (!passwordMatch) {
-//             return res.status(401).json({ message: "Invalid credentials", success: false });
-//         }
-
-//         const token = sign({ userId: loginResult.data[0].id, username: loginResult.data[0].username }, process.env.JWT_SECRET, { expiresIn: "1h" });
-
-//         res.json({ message: "Login successful", token, success: true });
-//     } catch (error) {
-//         console.error("Login error:", error);
-//         res.status(500).json({ message: "Server error" });
-//     }
-// });
 
 // Updated Login route to authenticate users and register push token
 app.post("/login", async (req, res) => {
@@ -837,7 +586,6 @@ app.get("/user/tickets/created", authenticateUser, async (req, res) => {
     }
 });
 
-
 // Route for tickets assigned to the user
 app.get("/user/tickets/assigned", authenticateUser, async (req, res) => {
     try {
@@ -879,6 +627,332 @@ app.get("/user/tickets/assigned", authenticateUser, async (req, res) => {
     }
 });
 
+// Route to fetch tickets assigned to the user's department
+app.get("/tickets/department", authenticateUser, async (req, res) => {
+    try {
+        const userId = req.userId;
+        console.log("Fetching department tickets for user:", { userId });
+
+        // Get user's department first
+        const userDeptQuery = `
+            SELECT department_id, first_name, surname 
+            FROM users 
+            WHERE id = $1;
+        `;
+        const userResult = await pool.query(userDeptQuery, [userId]);
+
+        if (userResult.rows.length === 0) {
+            console.log("User not found", { userId });
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        const { department_id, first_name, surname } = userResult.rows[0];
+        
+        if (!department_id) {
+            console.log("User not assigned to any department", { userId });
+            return res.status(404).json({ message: "You are not assigned to any department." });
+        }
+
+        // Fetch tickets assigned to user's department that are not yet assigned to a specific user
+        const ticketsQuery = `
+            SELECT 
+                t.id,
+                t.code,
+                t.subject,
+                t.details,
+                t.date_created,
+                t.complainant_name,
+                t.status_id,
+                t.priority_id,
+                t.department_id,
+                s.status_name AS status,
+                p.priority_name AS priority,
+                d.dept_name AS department_name
+            FROM tickets t
+            LEFT JOIN status s ON t.status_id = s.id
+            LEFT JOIN priority p ON t.priority_id = p.id
+            LEFT JOIN departments d ON t.department_id = d.id
+            WHERE t.department_id = $1 
+            AND (t.assigned_userid IS NULL OR t.assigned_userid = 0)
+            AND t.status_id NOT IN (4, 5) -- Exclude solved and closed tickets
+            ORDER BY 
+                CASE 
+                    WHEN p.priority_name = 'Urgent' THEN 1
+                    WHEN p.priority_name = 'High' THEN 2
+                    WHEN p.priority_name = 'Medium' THEN 3
+                    WHEN p.priority_name = 'Low' THEN 4
+                    ELSE 5
+                END ASC,
+                t.date_created ASC;
+        `;
+        
+        const ticketsResult = await pool.query(ticketsQuery, [department_id]);
+        
+        console.log("Department tickets fetched", { 
+            userId, 
+            departmentId: department_id, 
+            ticketCount: ticketsResult.rows.length 
+        });
+
+        if (ticketsResult.rows.length === 0) {
+            return res.status(200).json({
+                message: "No unassigned tickets found for your department.",
+                tickets: [],
+                departmentId: department_id
+            });
+        }
+
+        // Format the response data
+        const formattedTickets = ticketsResult.rows.map(ticket => ({
+            id: ticket.id,
+            code: ticket.code,
+            subject: ticket.subject || 'No Subject',
+            details: ticket.details || 'No Details',
+            date_created: ticket.date_created,
+            complainant_name: ticket.complainant_name || 'Unknown',
+            status: ticket.status || 'Unknown',
+            priority: ticket.priority || 'Unknown',
+            department_name: ticket.department_name || 'Unknown Department',
+            status_id: ticket.status_id,
+            priority_id: ticket.priority_id,
+            department_id: ticket.department_id
+        }));
+
+        res.json({
+            tickets: formattedTickets,
+            departmentId: department_id,
+            userName: `${first_name} ${surname}`,
+            totalCount: formattedTickets.length
+        });
+
+    } catch (error) {
+        console.error("Error fetching department tickets", { 
+            userId: req.userId, 
+            error: error.message, 
+            stack: error.stack 
+        });
+        res.status(500).json({ 
+            message: "Error fetching department tickets",
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    }
+});
+
+// Route to accept a ticket (assign it to the signed-in user)
+app.post("/tickets/accept/:ticketCode", authenticateUser, async (req, res) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        const userId = req.userId;
+        const ticketCode = req.params.ticketCode;
+        
+        console.log("User attempting to accept ticket", { userId, ticketCode });
+
+        // Validate ticket code
+        if (!ticketCode) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ 
+                success: false,
+                message: "Ticket code is required" 
+            });
+        }
+
+        // Get user details and department
+        const userQuery = `
+            SELECT 
+                u.id,
+                u.first_name,
+                u.surname,
+                u.department_id,
+                d.dept_name
+            FROM users u
+            LEFT JOIN departments d ON u.department_id = d.id
+            WHERE u.id = $1;
+        `;
+        const userResult = await client.query(userQuery, [userId]);
+
+        if (userResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ 
+                success: false,
+                message: "User not found" 
+            });
+        }
+
+        const user = userResult.rows[0];
+        const userName = `${user.first_name} ${user.surname}`;
+
+        if (!user.department_id) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ 
+                success: false,
+                message: "You are not assigned to any department and cannot accept tickets" 
+            });
+        }
+
+        // Check if ticket exists and get its current status
+        const ticketQuery = `
+            SELECT 
+                t.id,
+                t.code,
+                t.subject,
+                t.department_id,
+                t.assigned_userid,
+                t.status_id,
+                t.open_id,
+                d.dept_name,
+                s.status_name
+            FROM tickets t
+            LEFT JOIN departments d ON t.department_id = d.id
+            LEFT JOIN status s ON t.status_id = s.id
+            WHERE t.code = $1;
+        `;
+        const ticketResult = await client.query(ticketQuery, [ticketCode]);
+
+        if (ticketResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ 
+                success: false,
+                message: "Ticket not found" 
+            });
+        }
+
+        const ticket = ticketResult.rows[0];
+
+        // Check if ticket belongs to user's department
+        if (ticket.department_id !== user.department_id) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ 
+                success: false,
+                message: `This ticket is assigned to ${ticket.dept_name} department, but you belong to ${user.dept_name} department` 
+            });
+        }
+
+        // Check if ticket is already assigned to someone
+        if (ticket.assigned_userid && ticket.assigned_userid > 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ 
+                success: false,
+                message: "This ticket has already been accepted by another user" 
+            });
+        }
+
+        // Check if ticket is in a state that can be accepted
+        if (ticket.status_id === 4 || ticket.status_id === 5) { // Solved or Closed
+            await client.query('ROLLBACK');
+            return res.status(400).json({ 
+                success: false,
+                message: "Cannot accept a ticket that is already solved or closed" 
+            });
+        }
+
+        // Update ticket to assign it to the user
+        const updateQuery = `
+            UPDATE tickets 
+            SET 
+                assigned_userid = $1,
+                date_assigned = CURRENT_DATE,
+                status_id = CASE 
+                    WHEN status_id = 1 THEN 2  -- Change from Open to Pending if it was Open
+                    ELSE status_id             -- Keep current status otherwise
+                END
+            WHERE code = $2
+            RETURNING 
+                id, code, subject, assigned_userid, status_id, date_assigned;
+        `;
+        const updateResult = await client.query(updateQuery, [userId, ticketCode]);
+
+        if (updateResult.rowCount === 0) {
+            await client.query('ROLLBACK');
+            return res.status(500).json({ 
+                success: false,
+                message: "Failed to accept ticket" 
+            });
+        }
+
+        const updatedTicket = updateResult.rows[0];
+
+        // Insert notifications into notifications table
+        const notificationPromises = [];
+        
+        // Notify the user who accepted the ticket
+        notificationPromises.push(
+            client.query(
+                'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                [userId, `Successfully accepted ticket ${ticketCode}`]
+            )
+        );
+        
+        // Notify the ticket creator if they exist
+        if (ticket.open_id && ticket.open_id !== userId) {
+            notificationPromises.push(
+                client.query(
+                    'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                    [ticket.open_id, `Your ticket ${ticketCode} has been accepted by ${userName} and is now being worked on`]
+                )
+            );
+        }
+        
+        // Execute all notification insertions
+        await Promise.all(notificationPromises);
+        
+        await client.query('COMMIT');
+
+        // Send push notifications
+        const pushNotificationUserIds = [];
+        if (ticket.open_id && ticket.open_id !== userId) {
+            pushNotificationUserIds.push(ticket.open_id);
+        }
+        
+        if (pushNotificationUserIds.length > 0) {
+            await notifyUsers(
+                pushNotificationUserIds, 
+                'Ticket Accepted', 
+                `Your ticket ${ticketCode} has been accepted by ${userName}.`, 
+                { ticketId: ticketCode }
+            );
+        }
+
+        console.log("Ticket accepted successfully", {
+            ticketCode,
+            userId,
+            userName,
+            assignedDate: updatedTicket.date_assigned
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Ticket ${ticketCode} accepted successfully`,
+            ticket: {
+                id: updatedTicket.id,
+                code: updatedTicket.code,
+                subject: updatedTicket.subject,
+                assigned_userid: updatedTicket.assigned_userid,
+                assigned_user_name: userName,
+                date_assigned: updatedTicket.date_assigned,
+                status_id: updatedTicket.status_id
+            }
+        });
+
+    } catch (error) {
+        await client.query('ROLLBACK');
+        console.error("Error accepting ticket:", {
+            error: error.message,
+            stack: error.stack,
+            ticketCode: req.params.ticketCode,
+            userId: req.userId
+        });
+        res.status(500).json({
+            success: false,
+            message: "Error accepting ticket",
+            error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+        });
+    } finally {
+        client.release();
+    }
+});
+
 app.get("/tickets/trends", authenticateUser, async (req, res) => {
     try {
         const userId = req.userId;
@@ -906,1124 +980,7 @@ app.get("/tickets/trends", authenticateUser, async (req, res) => {
 });
 
 
-// Route to submit a new ticket
-// app.post('/submit-ticket', async (req, res) => {
-//     const { name, division, phoneNumber, office, priority, subject, details, staffId, regionId } = req.body;
-//     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details) {
-//         return res.status(400).json({ success: false, message: 'All fields are required' });
-//     }
-//     if (staffId && typeof staffId !== 'string') {
-//         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
-//     }
-//     if (regionId && (!Number.isInteger(regionId) || regionId <= 0)) {
-//         return res.status(400).json({ success: false, message: 'Region ID must be a positive integer' });
-//     }
 
-//     const client = await pool.connect();
-//     try {
-//         await client.query('BEGIN');
-        
-//         let userId = null;
-//         if (req.headers.authorization) {
-//             try {
-//                 const authHeader = req.headers.authorization;
-//                 if (authHeader.startsWith('Bearer ')) {
-//                     const token = authHeader.split(' ')[1];
-//                     const decoded = verify(token, process.env.JWT_SECRET);
-//                     userId = decoded.userId;
-//                 }
-//             } catch (error) {
-//                 console.warn('Authentication attempt failed, proceeding as unauthenticated:', error.message);
-//             }
-//         }
-//         const defaultRegionId = 1;
-//         const finalRegionId = regionId || defaultRegionId;
-//         const ticketDetails = {
-//             staff_id: staffId || null,
-//             region_id: regionId === 'greater_accra' ? 1 : regionId === 'ashanti' ? 2 : regionId === 'western' ? 3 : regionId === 'eastern' ? 4 : regionId === 'central' ? 5 : regionId === 'volta' ? 6 : regionId === 'northern' ? 7 : regionId === 'upper_east' ? 8 : regionId === 'upper_west' ? 9 : 1,
-//             division_id: division === 'lvd' ? 1 : division === 'pvlmd' ? 2 : division === 'lrd' ? 3 : division === 'smd' ? 4 : division === 'corporate' ? 5 : 5,
-//             priority_id: priority === 'urgent' ? 1 : priority === 'high' ? 2 : priority === 'medium' ? 3 : 4,
-//             is_assigned: 0,
-//             assigned_userid: null,
-//             date_assigned: 'N/A',
-//             department_id: null,
-//             subject,
-//             details,
-//             complainant_name: name,
-//             complainant_number: phoneNumber,
-//             complainant_office: office,
-//             status_id: 1,
-//             open_id: userId,
-//             pin: Math.floor(1000 + Math.random() * 9000),
-//             created_by: name,
-//             date_created: new Date().toISOString(),
-//         };
-//         const jsonTicketDetails = JSON.stringify(ticketDetails);
-//         const query = `SELECT public.ticket_insert($1::text) AS result;`;
-//         console.log('Submitting ticket with JSON:', jsonTicketDetails);
-//         const result = await client.query(query, [jsonTicketDetails]);
-//         const insertResult = result.rows[0].result;
-        
-//         if (insertResult) {
-//             let verifyQuery;
-//             let verifyParams;
-//             if (userId) {
-//                 verifyQuery = `
-//                     SELECT code
-//                     FROM public.tickets
-//                     WHERE open_id = $1
-//                     AND date_created = $2
-//                     AND subject = $3
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [userId, ticketDetails.date_created, ticketDetails.subject];
-//             } else {
-//                 verifyQuery = `
-//                     SELECT code
-//                     FROM public.tickets
-//                     WHERE open_id IS NULL
-//                     AND created_by = $1
-//                     AND date_created = $2
-//                     AND subject = $3
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
-//             }
-//             const verifyResult = await client.query(verifyQuery, verifyParams);
-            
-//             if (verifyResult.rows.length > 0) {
-//                 const ticketCode = verifyResult.rows[0].code;
-//                 console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
-                
-//                 // Insert notification into notifications table (like save-checklist endpoint)
-//                 if (userId) {
-//                     await client.query(
-//                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-//                         [userId, `New ticket ${ticketCode} has been created successfully`]
-//                     );
-                    
-//                     // Send push notification
-//                     await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
-//                 }
-                
-//                 await client.query('COMMIT');
-                
-//                 return res.status(201).json({
-//                     success: true,
-//                     message: 'Ticket submitted successfully',
-//                     ticketCode,
-//                 });
-//             } else {
-//                 await client.query('ROLLBACK');
-//                 console.error('Ticket insertion failed: No ticket found in database');
-//                 return res.status(500).json({
-//                     success: false,
-//                     message: 'Failed to submit ticket: Ticket not found in database',
-//                 });
-//             }
-//         } else {
-//             await client.query('ROLLBACK');
-//             console.error('Ticket insertion failed: Function returned false');
-//             return res.status(500).json({
-//                 success: false,
-//                 message: 'Failed to submit ticket: Database function failed',
-//             });
-//         }
-//     } catch (error) {
-//         await client.query('ROLLBACK');
-//         console.error('Error submitting ticket:', error.message);
-//         return res.status(500).json({
-//             success: false,
-//             message: 'Server error',
-//             error: error.message,
-//         });
-//     } finally {
-//         client.release();
-//     }
-// });
-
-
-// // Route to submit a new ticket
-// app.post('/submit-ticket', async (req, res) => {
-//     const { name, division, phoneNumber, office, priority, subject, details, staffId, region } = req.body;
-    
-//     // Validate required fields
-//     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details || !region) {
-//         return res.status(400).json({ success: false, message: 'All fields are required' });
-//     }
-
-//     // Validate staffId if provided
-//     if (staffId && typeof staffId !== 'string') {
-//         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
-//     }
-
-//     // Region mapping
-//     const regionMapping = {
-//         'Greater Accra': 1,
-//         'Eastern': 2,
-//         'Ashanti': 3,
-//         'Western': 4,
-//         'Volta': 5,
-//         'Oti': 6,
-//         'Western North': 7,
-//         'Bono': 8,
-//         'Bono East': 9,
-//         'Ahafo': 10,
-//         'Savannah': 11,
-//         'Northern': 12,
-//         'North East': 13,
-//         'Upper East': 14,
-//         'Upper West': 15,
-//         'Central': 16,
-//         'Tema': 17
-//     };
-
-//     const regionId = regionMapping[region];
-    
-//     if (!regionId) {
-//         return res.status(400).json({ 
-//             success: false, 
-//             message: 'Invalid region specified',
-//             validRegions: Object.keys(regionMapping)
-//         });
-//     }
-
-//     const client = await pool.connect();
-//     try {
-//         await client.query('BEGIN');
-        
-//         let userId = null;
-//         if (req.headers.authorization) {
-//             try {
-//                 const authHeader = req.headers.authorization;
-//                 if (authHeader.startsWith('Bearer ')) {
-//                     const token = authHeader.split(' ')[1];
-//                     const decoded = verify(token, process.env.JWT_SECRET);
-//                     userId = decoded.userId;
-//                 }
-//             } catch (error) {
-//                 console.warn('Authentication attempt failed, proceeding as unauthenticated:', error.message);
-//             }
-//         }
-
-//         const ticketDetails = {
-//             staff_id: staffId || null,
-//             region_id: regionId,
-//             division_id: division === 'lvd' ? 1 : 
-//                         division === 'pvlmd' ? 2 : 
-//                         division === 'lrd' ? 3 : 
-//                         division === 'smd' ? 4 : 
-//                         division === 'corporate' ? 5 : 5,
-//             priority_id: priority === 'urgent' ? 1 : 
-//                        priority === 'high' ? 2 : 
-//                        priority === 'medium' ? 3 : 4,
-//             is_assigned: 0,
-//             assigned_userid: null,
-//             date_assigned: 'N/A',
-//             department_id: null,
-//             subject,
-//             details,
-//             complainant_name: name,
-//             complainant_number: phoneNumber,
-//             complainant_office: office,
-//             status_id: 1,
-//             open_id: userId,
-//             pin: Math.floor(1000 + Math.random() * 9000),
-//             created_by: name,
-//             date_created: new Date().toISOString(),
-//         };
-
-//         const jsonTicketDetails = JSON.stringify(ticketDetails);
-//         const query = `SELECT public.ticket_insert($1::text) AS result;`;
-//         console.log('Submitting ticket with JSON:', jsonTicketDetails);
-//         const result = await client.query(query, [jsonTicketDetails]);
-//         const insertResult = result.rows[0].result;
-        
-//         if (insertResult) {
-//             let verifyQuery;
-//             let verifyParams;
-//             if (userId) {
-//                 verifyQuery = `
-//                     SELECT code
-//                     FROM public.tickets
-//                     WHERE open_id = $1
-//                     AND date_created = $2
-//                     AND subject = $3
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [userId, ticketDetails.date_created, ticketDetails.subject];
-//             } else {
-//                 verifyQuery = `
-//                     SELECT code
-//                     FROM public.tickets
-//                     WHERE open_id IS NULL
-//                     AND created_by = $1
-//                     AND date_created = $2
-//                     AND subject = $3
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
-//             }
-//             const verifyResult = await client.query(verifyQuery, verifyParams);
-            
-//             if (verifyResult.rows.length > 0) {
-//                 const ticketCode = verifyResult.rows[0].code;
-//                 console.log(`New ticket submitted successfully. Ticket Code: ${ticketCode}`);
-                
-//                 // Insert notification
-//                 if (userId) {
-//                     await client.query(
-//                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-//                         [userId, `New ticket ${ticketCode} has been created successfully`]
-//                     );
-                    
-//                     // Send push notification
-//                     await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
-//                 }
-                
-//                 await client.query('COMMIT');
-                
-//                 return res.status(201).json({
-//                     success: true,
-//                     message: 'Ticket submitted successfully',
-//                     ticketCode,
-//                 });
-//             } else {
-//                 await client.query('ROLLBACK');
-//                 console.error('Ticket insertion failed: No ticket found in database');
-//                 return res.status(500).json({
-//                     success: false,
-//                     message: 'Failed to submit ticket: Ticket not found in database',
-//                 });
-//             }
-//         } else {
-//             await client.query('ROLLBACK');
-//             console.error('Ticket insertion failed: Function returned false');
-//             return res.status(500).json({
-//                 success: false,
-//                 message: 'Failed to submit ticket: Database function failed',
-//             });
-//         }
-//     } catch (error) {
-//         await client.query('ROLLBACK');
-//         console.error('Error submitting ticket:', error.message);
-//         return res.status(500).json({
-//             success: false,
-//             message: 'Server error',
-//             error: error.message,
-//         });
-//     } finally {
-//         client.release();
-//     }
-// });
-
-// // Route to submit a new ticket
-// app.post('/submit-ticket', async (req, res) => {
-//     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-//     const startTime = Date.now();
-    
-//     console.log(`[${requestId}] Ticket submission request started`, {
-//         timestamp: new Date().toISOString(),
-//         ip: req.ip || req.connection.remoteAddress,
-//         userAgent: req.get('User-Agent'),
-//         hasAuth: !!req.headers.authorization
-//     });
-
-//     const { name, division, phoneNumber, office, priority, subject, details, staffId, region } = req.body;
-    
-//     // Log request payload (sanitized)
-//     console.log(`[${requestId}] Request payload received`, {
-//         name: name ? '[REDACTED]' : undefined,
-//         division,
-//         phoneNumber: phoneNumber ? '[REDACTED]' : undefined,
-//         office,
-//         priority,
-//         subject: subject ? subject.substring(0, 50) + '...' : undefined,
-//         detailsLength: details ? details.length : 0,
-//         staffId: staffId ? '[REDACTED]' : undefined,
-//         region
-//     });
-    
-//     // Validate required fields
-//     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details || !region) {
-//         const missingFields = [];
-//         if (!name) missingFields.push('name');
-//         if (!division) missingFields.push('division');
-//         if (!phoneNumber) missingFields.push('phoneNumber');
-//         if (!office) missingFields.push('office');
-//         if (!priority) missingFields.push('priority');
-//         if (!subject) missingFields.push('subject');
-//         if (!details) missingFields.push('details');
-//         if (!region) missingFields.push('region');
-        
-//         console.warn(`[${requestId}] Validation failed - missing required fields`, {
-//             missingFields,
-//             duration: Date.now() - startTime
-//         });
-        
-//         return res.status(400).json({ success: false, message: 'All fields are required' });
-//     }
-
-//     // Validate staffId if provided
-//     if (staffId && typeof staffId !== 'string') {
-//         console.warn(`[${requestId}] Validation failed - invalid staffId type`, {
-//             staffIdType: typeof staffId,
-//             duration: Date.now() - startTime
-//         });
-//         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
-//     }
-
-//     // Region mapping
-//     const regionMapping = {
-//         'Greater Accra': 1,
-//         'Eastern': 2,
-//         'Ashanti': 3,
-//         'Western': 4,
-//         'Volta': 5,
-//         'Oti': 6,
-//         'Western North': 7,
-//         'Bono': 8,
-//         'Bono East': 9,
-//         'Ahafo': 10,
-//         'Savannah': 11,
-//         'Northern': 12,
-//         'North East': 13,
-//         'Upper East': 14,
-//         'Upper West': 15,
-//         'Central': 16,
-//         'Tema': 17
-//     };
-
-//     const regionId = regionMapping[region];
-    
-//     if (!regionId) {
-//         console.warn(`[${requestId}] Validation failed - invalid region`, {
-//             providedRegion: region,
-//             validRegions: Object.keys(regionMapping),
-//             duration: Date.now() - startTime
-//         });
-        
-//         return res.status(400).json({ 
-//             success: false, 
-//             message: 'Invalid region specified',
-//             validRegions: Object.keys(regionMapping)
-//         });
-//     }
-
-//     console.log(`[${requestId}] Validation passed, attempting database connection`);
-
-//     const client = await pool.connect();
-//     try {
-//         console.log(`[${requestId}] Database connection established, beginning transaction`);
-//         await client.query('BEGIN');
-        
-//         let userId = null;
-//         if (req.headers.authorization) {
-//             console.log(`[${requestId}] Processing authentication token`);
-//             try {
-//                 const authHeader = req.headers.authorization;
-//                 if (authHeader.startsWith('Bearer ')) {
-//                     const token = authHeader.split(' ')[1];
-//                     const decoded = verify(token, process.env.JWT_SECRET);
-//                     userId = decoded.userId;
-//                     console.log(`[${requestId}] Authentication successful`, { userId });
-//                 } else {
-//                     console.warn(`[${requestId}] Invalid authorization header format`);
-//                 }
-//             } catch (error) {
-//                 console.warn(`[${requestId}] Authentication attempt failed, proceeding as unauthenticated`, {
-//                     error: error.message,
-//                     errorType: error.name
-//                 });
-//             }
-//         } else {
-//             console.log(`[${requestId}] No authentication header provided, proceeding as unauthenticated`);
-//         }
-
-//         const ticketDetails = {
-//             staff_id: staffId || null,
-//             region_id: regionId,
-//             division_id: division === 'lvd' ? 1 : 
-//                         division === 'pvlmd' ? 2 : 
-//                         division === 'lrd' ? 3 : 
-//                         division === 'smd' ? 4 : 
-//                         division === 'corporate' ? 5 : 5,
-//             priority_id: priority === 'urgent' ? 1 : 
-//                        priority === 'high' ? 2 : 
-//                        priority === 'medium' ? 3 : 4,
-//             is_assigned: 0,
-//             assigned_userid: null,
-//             date_assigned: 'N/A',
-//             department_id: null,
-//             subject,
-//             details,
-//             complainant_name: name,
-//             complainant_number: phoneNumber,
-//             complainant_office: office,
-//             status_id: 1,
-//             open_id: userId,
-//             pin: Math.floor(1000 + Math.random() * 9000),
-//             created_by: name,
-//             date_created: new Date().toISOString(),
-//         };
-
-//         console.log(`[${requestId}] Ticket details prepared`, {
-//             regionId: ticketDetails.region_id,
-//             divisionId: ticketDetails.division_id,
-//             priorityId: ticketDetails.priority_id,
-//             hasUserId: !!ticketDetails.open_id,
-//             pin: ticketDetails.pin
-//         });
-
-//         const jsonTicketDetails = JSON.stringify(ticketDetails);
-//         const query = `SELECT public.ticket_insert($1::text) AS result;`;
-        
-//         console.log(`[${requestId}] Executing ticket insertion`, {
-//             queryFunction: 'public.ticket_insert',
-//             payloadSize: jsonTicketDetails.length
-//         });
-        
-//         const result = await client.query(query, [jsonTicketDetails]);
-//         const insertResult = result.rows[0].result;
-        
-//         console.log(`[${requestId}] Ticket insertion function result`, {
-//             success: !!insertResult,
-//             result: insertResult
-//         });
-        
-//         if (insertResult) {
-//             let verifyQuery;
-//             let verifyParams;
-//             if (userId) {
-//                 verifyQuery = `
-//                     SELECT code
-//                     FROM public.tickets
-//                     WHERE open_id = $1
-//                     AND date_created = $2
-//                     AND subject = $3
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [userId, ticketDetails.date_created, ticketDetails.subject];
-//                 console.log(`[${requestId}] Verifying ticket creation for authenticated user`);
-//             } else {
-//                 verifyQuery = `
-//                     SELECT code
-//                     FROM public.tickets
-//                     WHERE open_id IS NULL
-//                     AND created_by = $1
-//                     AND date_created = $2
-//                     AND subject = $3
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [ticketDetails.created_by, ticketDetails.date_created, ticketDetails.subject];
-//                 console.log(`[${requestId}] Verifying ticket creation for unauthenticated user`);
-//             }
-            
-//             const verifyResult = await client.query(verifyQuery, verifyParams);
-            
-//             if (verifyResult.rows.length > 0) {
-//                 const ticketCode = verifyResult.rows[0].code;
-//                 console.log(`[${requestId}] Ticket created successfully`, {
-//                     ticketCode,
-//                     verificationMethod: userId ? 'authenticated' : 'unauthenticated'
-//                 });
-                
-//                 // Insert notification
-//                 if (userId) {
-//                     console.log(`[${requestId}] Creating notification for user`, { userId });
-//                     try {
-//                         await client.query(
-//                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-//                             [userId, `New ticket ${ticketCode} has been created successfully`]
-//                         );
-//                         console.log(`[${requestId}] Notification inserted successfully`);
-                        
-//                         // Send push notification
-//                         console.log(`[${requestId}] Sending push notification`);
-//                         await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
-//                         console.log(`[${requestId}] Push notification sent successfully`);
-//                     } catch (notificationError) {
-//                         console.error(`[${requestId}] Failed to create notification/push`, {
-//                             error: notificationError.message,
-//                             userId,
-//                             ticketCode
-//                         });
-//                         // Don't fail the entire request for notification issues
-//                     }
-//                 } else {
-//                     console.log(`[${requestId}] Skipping notification - no authenticated user`);
-//                 }
-                
-//                 console.log(`[${requestId}] Committing transaction`);
-//                 await client.query('COMMIT');
-                
-//                 console.log(`[${requestId}] Ticket submission completed successfully`, {
-//                     ticketCode,
-//                     duration: Date.now() - startTime,
-//                     hasNotifications: !!userId
-//                 });
-                
-//                 return res.status(201).json({
-//                     success: true,
-//                     message: 'Ticket submitted successfully',
-//                     ticketCode,
-//                 });
-//             } else {
-//                 console.error(`[${requestId}] Ticket verification failed - no ticket found in database`, {
-//                     verificationParams: userId ? { userId, subject: ticketDetails.subject } : { createdBy: ticketDetails.created_by, subject: ticketDetails.subject },
-//                     duration: Date.now() - startTime
-//                 });
-                
-//                 await client.query('ROLLBACK');
-//                 return res.status(500).json({
-//                     success: false,
-//                     message: 'Failed to submit ticket: Ticket not found in database',
-//                 });
-//             }
-//         } else {
-//             console.error(`[${requestId}] Ticket insertion function returned false`, {
-//                 functionResult: insertResult,
-//                 duration: Date.now() - startTime
-//             });
-            
-//             await client.query('ROLLBACK');
-//             return res.status(500).json({
-//                 success: false,
-//                 message: 'Failed to submit ticket: Database function failed',
-//             });
-//         }
-//     } catch (error) {
-//         console.error(`[${requestId}] Error during ticket submission`, {
-//             error: error.message,
-//             errorType: error.name,
-//             stack: error.stack,
-//             duration: Date.now() - startTime
-//         });
-        
-//         try {
-//             await client.query('ROLLBACK');
-//             console.log(`[${requestId}] Transaction rolled back successfully`);
-//         } catch (rollbackError) {
-//             console.error(`[${requestId}] Failed to rollback transaction`, {
-//                 rollbackError: rollbackError.message
-//             });
-//         }
-        
-//         return res.status(500).json({
-//             success: false,
-//             message: 'Server error',
-//             error: error.message,
-//         });
-//     } finally {
-//         try {
-//             client.release();
-//             console.log(`[${requestId}] Database connection released`, {
-//                 totalDuration: Date.now() - startTime
-//             });
-//         } catch (releaseError) {
-//             console.error(`[${requestId}] Failed to release database connection`, {
-//                 error: releaseError.message
-//             });
-//         }
-//     }
-// });
-
-// // Route to submit a new ticket
-// app.post('/submit-ticket', async (req, res) => {
-//     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-//     const startTime = Date.now();
-    
-//     console.log(`[${requestId}] Ticket submission request started`, {
-//         timestamp: new Date().toISOString(),
-//         ip: req.ip || req.connection.remoteAddress,
-//         userAgent: req.get('User-Agent'),
-//         hasAuth: !!req.headers.authorization
-//     });
-
-//     const { name, division, phoneNumber, office, priority, subject, details, staffId, region } = req.body;
-    
-//     // Log request payload (sanitized)
-//     console.log(`[${requestId}] Request payload received`, {
-//         name: name ? '[REDACTED]' : undefined,
-//         division,
-//         phoneNumber: phoneNumber ? '[REDACTED]' : undefined,
-//         office,
-//         priority,
-//         subject: subject ? subject.substring(0, 50) + '...' : undefined,
-//         detailsLength: details ? details.length : 0,
-//         staffId: staffId ? '[REDACTED]' : undefined,
-//         region
-//     });
-    
-//     // Validate required fields
-//     if (!name || !division || !phoneNumber || !office || !priority || !subject || !details || !region) {
-//         const missingFields = [];
-//         if (!name) missingFields.push('name');
-//         if (!division) missingFields.push('division');
-//         if (!phoneNumber) missingFields.push('phoneNumber');
-//         if (!office) missingFields.push('office');
-//         if (!priority) missingFields.push('priority');
-//         if (!subject) missingFields.push('subject');
-//         if (!details) missingFields.push('details');
-//         if (!region) missingFields.push('region');
-        
-//         console.warn(`[${requestId}] Validation failed - missing required fields`, {
-//             missingFields,
-//             duration: Date.now() - startTime
-//         });
-        
-//         return res.status(400).json({ success: false, message: 'All fields are required' });
-//     }
-
-//     // Validate staffId if provided
-//     if (staffId && typeof staffId !== 'string') {
-//         console.warn(`[${requestId}] Validation failed - invalid staffId type`, {
-//             staffIdType: typeof staffId,
-//             duration: Date.now() - startTime
-//         });
-//         return res.status(400).json({ success: false, message: 'Staff ID must be a string' });
-//     }
-
-//     // Validate subject and details length to prevent database issues
-//     if (subject.length > 255) {
-//         console.warn(`[${requestId}] Validation failed - subject too long`, {
-//             subjectLength: subject.length,
-//             duration: Date.now() - startTime
-//         });
-//         return res.status(400).json({ success: false, message: 'Subject must be 255 characters or less' });
-//     }
-
-//     if (details.length > 5000) {
-//         console.warn(`[${requestId}] Validation failed - details too long`, {
-//             detailsLength: details.length,
-//             duration: Date.now() - startTime
-//         });
-//         return res.status(400).json({ success: false, message: 'Details must be 5000 characters or less' });
-//     }
-
-//     // Region mapping
-//     const regionMapping = {
-//         'Greater Accra': 1,
-//         'Eastern': 2,
-//         'Ashanti': 3,
-//         'Western': 4,
-//         'Volta': 5,
-//         'Oti': 6,
-//         'Western North': 7,
-//         'Bono': 8,
-//         'Bono East': 9,
-//         'Ahafo': 10,
-//         'Savannah': 11,
-//         'Northern': 12,
-//         'North East': 13,
-//         'Upper East': 14,
-//         'Upper West': 15,
-//         'Central': 16,
-//         'Tema': 17
-//     };
-
-//     const regionId = regionMapping[region];
-    
-//     if (!regionId) {
-//         console.warn(`[${requestId}] Validation failed - invalid region`, {
-//             providedRegion: region,
-//             validRegions: Object.keys(regionMapping),
-//             duration: Date.now() - startTime
-//         });
-        
-//         return res.status(400).json({ 
-//             success: false, 
-//             message: 'Invalid region specified',
-//             validRegions: Object.keys(regionMapping)
-//         });
-//     }
-
-//     // Division mapping with validation
-//     const divisionMapping = {
-//         'lvd': 1,
-//         'pvlmd': 2,
-//         'lrd': 3,
-//         'smd': 4,
-//         'corporate': 5
-//     };
-
-//     const divisionId = divisionMapping[division.toLowerCase()];
-//     if (!divisionId) {
-//         console.warn(`[${requestId}] Validation failed - invalid division`, {
-//             providedDivision: division,
-//             validDivisions: Object.keys(divisionMapping),
-//             duration: Date.now() - startTime
-//         });
-        
-//         return res.status(400).json({ 
-//             success: false, 
-//             message: 'Invalid division specified',
-//             validDivisions: Object.keys(divisionMapping)
-//         });
-//     }
-
-//     // Priority mapping with validation
-//     const priorityMapping = {
-//         'urgent': 1,
-//         'high': 2,
-//         'medium': 3,
-//         'low': 4
-//     };
-
-//     const priorityId = priorityMapping[priority.toLowerCase()];
-//     if (!priorityId) {
-//         console.warn(`[${requestId}] Validation failed - invalid priority`, {
-//             providedPriority: priority,
-//             validPriorities: Object.keys(priorityMapping),
-//             duration: Date.now() - startTime
-//         });
-        
-//         return res.status(400).json({ 
-//             success: false, 
-//             message: 'Invalid priority specified',
-//             validPriorities: Object.keys(priorityMapping)
-//         });
-//     }
-
-//     console.log(`[${requestId}] Validation passed, attempting database connection`);
-
-//     const client = await pool.connect();
-//     try {
-//         console.log(`[${requestId}] Database connection established, beginning transaction`);
-//         await client.query('BEGIN');
-        
-//         let userId = null;
-//         if (req.headers.authorization) {
-//             console.log(`[${requestId}] Processing authentication token`);
-//             try {
-//                 const authHeader = req.headers.authorization;
-//                 if (authHeader.startsWith('Bearer ')) {
-//                     const token = authHeader.split(' ')[1];
-//                     const decoded = verify(token, process.env.JWT_SECRET);
-//                     userId = decoded.userId;
-//                     console.log(`[${requestId}] Authentication successful`, { userId });
-//                 } else {
-//                     console.warn(`[${requestId}] Invalid authorization header format`);
-//                 }
-//             } catch (error) {
-//                 console.warn(`[${requestId}] Authentication attempt failed, proceeding as unauthenticated`, {
-//                     error: error.message,
-//                     errorType: error.name
-//                 });
-//             }
-//         } else {
-//             console.log(`[${requestId}] No authentication header provided, proceeding as unauthenticated`);
-//         }
-
-//         // Validate that region and division exist in the database
-//         console.log(`[${requestId}] Validating region and division in database`);
-//         const regionValidation = await client.query('SELECT region_code FROM regions WHERE id = $1', [regionId]);
-//         const divisionValidation = await client.query('SELECT division_code FROM divisions WHERE id = $1', [divisionId]);
-
-//         if (regionValidation.rows.length === 0) {
-//             console.error(`[${requestId}] Region validation failed - region not found in database`, {
-//                 regionId,
-//                 duration: Date.now() - startTime
-//             });
-//             await client.query('ROLLBACK');
-//             return res.status(400).json({
-//                 success: false,
-//                 message: 'Invalid region - region not found in database',
-//             });
-//         }
-
-//         if (divisionValidation.rows.length === 0) {
-//             console.error(`[${requestId}] Division validation failed - division not found in database`, {
-//                 divisionId,
-//                 duration: Date.now() - startTime
-//             });
-//             await client.query('ROLLBACK');
-//             return res.status(400).json({
-//                 success: false,
-//                 message: 'Invalid division - division not found in database',
-//             });
-//         }
-
-//         console.log(`[${requestId}] Database validation successful`, {
-//             regionCode: regionValidation.rows[0].region_code,
-//             divisionCode: divisionValidation.rows[0].division_code
-//         });
-
-//         // Generate a more robust PIN
-//         const pin = Math.floor(1000 + Math.random() * 9000);
-//         const currentDateTime = new Date().toISOString();
-
-//         const ticketDetails = {
-//             staff_id: staffId || null,
-//             region_id: regionId,
-//             division_id: divisionId,
-//             priority_id: priorityId,
-//             is_assigned: 0,
-//             assigned_userid: null,
-//             date_assigned: 'N/A',
-//             department_id: null,
-//             subject: subject.trim(),
-//             details: details.trim(),
-//             complainant_name: name.trim(),
-//             complainant_number: phoneNumber.trim(),
-//             complainant_office: office.trim(),
-//             status_id: 1,
-//             open_id: userId,
-//             pin: pin,
-//             created_by: name.trim(),
-//             date_created: currentDateTime,
-//         };
-
-//         console.log(`[${requestId}] Ticket details prepared`, {
-//             regionId: ticketDetails.region_id,
-//             divisionId: ticketDetails.division_id,
-//             priorityId: ticketDetails.priority_id,
-//             hasUserId: !!ticketDetails.open_id,
-//             pin: ticketDetails.pin,
-//             subjectLength: ticketDetails.subject.length,
-//             detailsLength: ticketDetails.details.length
-//         });
-
-//         // Add retry logic for the database function call
-//         const maxRetries = 3;
-//         let insertResult = null;
-//         let retryCount = 0;
-
-//         while (retryCount < maxRetries) {
-//             try {
-//                 const jsonTicketDetails = JSON.stringify(ticketDetails);
-//                 const query = `SELECT public.ticket_insert($1::text) AS result;`;
-                
-//                 console.log(`[${requestId}] Executing ticket insertion (attempt ${retryCount + 1})`, {
-//                     queryFunction: 'public.ticket_insert',
-//                     payloadSize: jsonTicketDetails.length,
-//                     attempt: retryCount + 1
-//                 });
-                
-//                 const result = await client.query(query, [jsonTicketDetails]);
-//                 insertResult = result.rows[0].result;
-                
-//                 console.log(`[${requestId}] Ticket insertion function result`, {
-//                     success: !!insertResult,
-//                     result: insertResult,
-//                     attempt: retryCount + 1
-//                 });
-
-//                 if (insertResult) {
-//                     break; // Success, exit retry loop
-//                 }
-
-//                 retryCount++;
-//                 if (retryCount < maxRetries) {
-//                     console.log(`[${requestId}] Retrying ticket insertion`, { attempt: retryCount + 1 });
-//                     await new Promise(resolve => setTimeout(resolve, 100 * retryCount)); // Exponential backoff
-//                 }
-//             } catch (error) {
-//                 console.error(`[${requestId}] Error in ticket insertion attempt ${retryCount + 1}`, {
-//                     error: error.message,
-//                     attempt: retryCount + 1
-//                 });
-                
-//                 retryCount++;
-//                 if (retryCount >= maxRetries) {
-//                     throw error;
-//                 }
-                
-//                 await new Promise(resolve => setTimeout(resolve, 100 * retryCount)); // Exponential backoff
-//             }
-//         }
-        
-//         if (insertResult) {
-//             // Enhanced verification with multiple methods
-//             let verifyQuery;
-//             let verifyParams;
-//             let ticketCode = null;
-            
-//             // Method 1: Try to find by unique combination of fields
-//             console.log(`[${requestId}] Attempting ticket verification method 1 - by unique fields`);
-            
-//             if (userId) {
-//                 verifyQuery = `
-//                     SELECT code, id
-//                     FROM public.tickets
-//                     WHERE open_id = $1
-//                     AND subject = $2
-//                     AND complainant_name = $3
-//                     AND pin = $4
-//                     AND region_id = $5
-//                     AND division_id = $6
-//                     ORDER BY id DESC
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [userId, ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.pin, ticketDetails.region_id, ticketDetails.division_id];
-//             } else {
-//                 verifyQuery = `
-//                     SELECT code, id
-//                     FROM public.tickets
-//                     WHERE open_id IS NULL
-//                     AND subject = $1
-//                     AND complainant_name = $2
-//                     AND pin = $3
-//                     AND region_id = $4
-//                     AND division_id = $5
-//                     AND created_by = $6
-//                     ORDER BY id DESC
-//                     LIMIT 1;
-//                 `;
-//                 verifyParams = [ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.pin, ticketDetails.region_id, ticketDetails.division_id, ticketDetails.created_by];
-//             }
-            
-//             let verifyResult = await client.query(verifyQuery, verifyParams);
-            
-//             if (verifyResult.rows.length > 0) {
-//                 ticketCode = verifyResult.rows[0].code;
-//                 console.log(`[${requestId}] Ticket verification method 1 successful`, {
-//                     ticketCode,
-//                     ticketId: verifyResult.rows[0].id
-//                 });
-//             } else {
-//                 // Method 2: Try to find by PIN and recent timestamp (fallback)
-//                 console.log(`[${requestId}] Attempting ticket verification method 2 - by PIN and recent timestamp`);
-                
-//                 verifyQuery = `
-//                     SELECT code, id
-//                     FROM public.tickets
-//                     WHERE pin = $1
-//                     AND subject = $2
-//                     AND complainant_name = $3
-//                     AND region_id = $4
-//                     AND division_id = $5
-//                     AND date_created >= $6
-//                     ORDER BY id DESC
-//                     LIMIT 1;
-//                 `;
-                
-//                 // Look for tickets created in the last 5 minutes
-//                 const recentTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-//                 verifyParams = [ticketDetails.pin, ticketDetails.subject, ticketDetails.complainant_name, ticketDetails.region_id, ticketDetails.division_id, recentTime];
-                
-//                 verifyResult = await client.query(verifyQuery, verifyParams);
-                
-//                 if (verifyResult.rows.length > 0) {
-//                     ticketCode = verifyResult.rows[0].code;
-//                     console.log(`[${requestId}] Ticket verification method 2 successful`, {
-//                         ticketCode,
-//                         ticketId: verifyResult.rows[0].id
-//                     });
-//                 }
-//             }
-            
-//             if (ticketCode) {
-//                 console.log(`[${requestId}] Ticket created successfully`, {
-//                     ticketCode,
-//                     verificationMethod: userId ? 'authenticated' : 'unauthenticated'
-//                 });
-                
-//                 // Insert notification
-//                 if (userId) {
-//                     console.log(`[${requestId}] Creating notification for user`, { userId });
-//                     try {
-//                         await client.query(
-//                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-//                             [userId, `New ticket ${ticketCode} has been created successfully`]
-//                         );
-//                         console.log(`[${requestId}] Notification inserted successfully`);
-                        
-//                         // Send push notification
-//                         console.log(`[${requestId}] Sending push notification`);
-//                         await notifyUsers([userId], 'New Ticket Created', `Your ticket ${ticketCode} has been created.`, { ticketId: ticketCode });
-//                         console.log(`[${requestId}] Push notification sent successfully`);
-//                     } catch (notificationError) {
-//                         console.error(`[${requestId}] Failed to create notification/push`, {
-//                             error: notificationError.message,
-//                             userId,
-//                             ticketCode
-//                         });
-//                         // Don't fail the entire request for notification issues
-//                     }
-//                 } else {
-//                     console.log(`[${requestId}] Skipping notification - no authenticated user`);
-//                 }
-                
-//                 console.log(`[${requestId}] Committing transaction`);
-//                 await client.query('COMMIT');
-                
-//                 console.log(`[${requestId}] Ticket submission completed successfully`, {
-//                     ticketCode,
-//                     duration: Date.now() - startTime,
-//                     hasNotifications: !!userId
-//                 });
-                
-//                 return res.status(201).json({
-//                     success: true,
-//                     message: 'Ticket submitted successfully',
-//                     ticketCode,
-//                     pin: ticketDetails.pin, // Include PIN for user reference
-//                 });
-//             } else {
-//                 console.error(`[${requestId}] Ticket verification failed - no ticket found in database after insertion`, {
-//                     pin: ticketDetails.pin,
-//                     subject: ticketDetails.subject,
-//                     complainantName: ticketDetails.complainant_name,
-//                     regionId: ticketDetails.region_id,
-//                     divisionId: ticketDetails.division_id,
-//                     duration: Date.now() - startTime
-//                 });
-                
-//                 await client.query('ROLLBACK');
-//                 return res.status(500).json({
-//                     success: false,
-//                     message: 'Failed to submit ticket: Unable to verify ticket creation in database',
-//                 });
-//             }
-//         } else {
-//             console.error(`[${requestId}] Ticket insertion function returned false after all retries`, {
-//                 functionResult: insertResult,
-//                 retriesAttempted: retryCount,
-//                 duration: Date.now() - startTime
-//             });
-            
-//             await client.query('ROLLBACK');
-//             return res.status(500).json({
-//                 success: false,
-//                 message: 'Failed to submit ticket: Database function failed after retries',
-//             });
-//         }
-//     } catch (error) {
-//         console.error(`[${requestId}] Error during ticket submission`, {
-//             error: error.message,
-//             errorType: error.name,
-//             stack: error.stack,
-//             duration: Date.now() - startTime
-//         });
-        
-//         try {
-//             await client.query('ROLLBACK');
-//             console.log(`[${requestId}] Transaction rolled back successfully`);
-//         } catch (rollbackError) {
-//             console.error(`[${requestId}] Failed to rollback transaction`, {
-//                 rollbackError: rollbackError.message
-//             });
-//         }
-        
-//         return res.status(500).json({
-//             success: false,
-//             message: 'Server error during ticket submission',
-//             error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
-//         });
-//     } finally {
-//         try {
-//             client.release();
-//             console.log(`[${requestId}] Database connection released`, {
-//                 totalDuration: Date.now() - startTime
-//             });
-//         } catch (releaseError) {
-//             console.error(`[${requestId}] Failed to release database connection`, {
-//                 error: releaseError.message
-//             });
-//         }
-//     }
-// });
 
 // Route to submit a new ticket
 app.post('/submit-ticket', async (req, res) => {
@@ -2590,56 +1547,6 @@ app.delete('/notifications/:id', authenticateUser, async (req, res) => {
 });
 
 
-// // Route to fetch recent notifications
-// app.get("/notifications", authenticateUser, async (req, res) => {
-//     try {
-//         const query = `
-//             SELECT message, created_at
-//             FROM notifications
-//             ORDER BY created_at DESC
-//             LIMIT 10;
-//         `;
-//         const result = await pool.query(query);
-//         res.json(result.rows);
-//     } catch (error) {
-//         console.error("Error fetching notifications:", error);
-//         res.status(500).json({ message: "Error fetching notifications" });
-//     }
-// });
-
-// app.post('/sendPushNotification', authenticateUser, async (req, res) => {
-//   const { userIds, ticketId, title, body } = req.body;
-//   if (!userIds || !Array.isArray(userIds) || !title || !body) {
-//     return res.status(400).json({ message: 'Missing required fields: userIds, title, body' });
-//   }
-//   try {
-//     const query = 'SELECT device_token FROM device_tokens WHERE user_id = ANY($1)';
-//     const result = await pool.query(query, [userIds]);
-//     const tokens = result.rows.map(row => row.device_token);
-//     if (tokens.length === 0) {
-//       return res.status(404).json({ message: 'No device tokens found' });
-//     }
-//  const message = {
-//   notification: { title, body },
-//   data: { ticketId: ticketId ? ticketId.toString() : '' },
-//   android: { priority: 'high' },
-//   tokens,
-// };
-
-// const response = await admin.messaging().sendEachForMulticast(message);
-//     const insertPromises = userIds.map(userId =>
-//   pool.query(
-//     'INSERT INTO notifications (message, created_at, user_id) VALUES ($1, $2, $3)',
-//     [`${title}: ${body}`, new Date(), userId]
-//   )
-// );
-// await Promise.all(insertPromises);
-//     res.status(200).json({ message: 'Notifications sent successfully', response });
-//   } catch (error) {
-//     console.error('Error sending notifications:', error);
-//     res.status(500).json({ message: 'Error sending notifications', error: error.message });
-//   }
-// });
 
 // Route to save device token
 app.post('/save-device-token', authenticateUser, async (req, res) => {
@@ -2661,88 +1568,6 @@ app.post('/save-device-token', authenticateUser, async (req, res) => {
     }
 });
 
-// // Endpoint to register push token
-// app.post('/register', (req, res) => {
-//   const { token } = req.body;
-//   if (token && !pushTokens.includes(token)) {
-//     pushTokens.push(token);
-//     console.log('Registered push token:', token);
-//   }
-//   res.send('Token registered');
-// });
-
-// // Unified endpoint to register or update push token
-// app.post('/register', async (req, res) => {
-//     try {
-//       const { token, user_id } = req.body;
-      
-//       // Validate input
-//       if (!token) {
-//         return res.status(400).json({ 
-//           error: 'Push token is required' 
-//         });
-//       }
-      
-//       if (!user_id) {
-//         return res.status(400).json({ 
-//           error: 'User ID is required' 
-//         });
-//       }
-  
-//       // Check if user already has a token registered
-//       const existingToken = await db.query(
-//         'SELECT id, device_token FROM device_tokens WHERE user_id = ?',
-//         [user_id]
-//       );
-  
-//       if (existingToken.length > 0) {
-//         const existingRecord = existingToken[0];
-        
-//         // If token is the same, no need to update
-//         if (existingRecord.device_token === token) {
-//           console.log('Push token already up-to-date for user:', user_id);
-//           return res.json({ 
-//             message: 'Token already registered and up-to-date',
-//             token_id: existingRecord.id,
-//             action: 'no_change'
-//           });
-//         }
-        
-//         // Update existing token
-//         await db.query(
-//           'UPDATE device_tokens SET device_token = ?, updated_at = NOW() WHERE user_id = ?',
-//           [token, user_id]
-//         );
-        
-//         console.log('Updated push token for user:', user_id, 'Token ID:', existingRecord.id);
-//         return res.json({ 
-//           message: 'Token updated successfully',
-//           token_id: existingRecord.id,
-//           action: 'updated'
-//         });
-//       }
-  
-//       // Insert new token if user doesn't have one
-//       const result = await db.query(
-//         'INSERT INTO device_tokens (device_token, user_id, created_at) VALUES (?, ?, NOW())',
-//         [token, user_id]
-//       );
-  
-//       console.log('Registered new push token for user:', user_id, 'Token ID:', result.insertId);
-      
-//       res.status(201).json({ 
-//         message: 'Token registered successfully',
-//         token_id: result.insertId,
-//         action: 'created'
-//       });
-  
-//     } catch (error) {
-//       console.error('Error processing push token:', error);
-//       res.status(500).json({ 
-//         error: 'Failed to process token' 
-//       });
-//     }
-//   });
 
 app.post('/register', async (req, res) => {
     try {
@@ -2816,54 +1641,6 @@ app.post('/register', async (req, res) => {
     }
 });
   
-  // Alternative approach using MySQL's ON DUPLICATE KEY UPDATE (if you have a unique constraint)
-  /*
-  app.post('/register', async (req, res) => {
-    try {
-      const { token, user_id } = req.body;
-      
-      // Validate input
-      if (!token) {
-        return res.status(400).json({ 
-          error: 'Push token is required' 
-        });
-      }
-      
-      if (!user_id) {
-        return res.status(400).json({ 
-          error: 'User ID is required' 
-        });
-      }
-  
-      // Use INSERT ... ON DUPLICATE KEY UPDATE for MySQL
-      // This requires a UNIQUE constraint on user_id column
-      const result = await db.query(`
-        INSERT INTO device_tokens (device_token, user_id, created_at) 
-        VALUES (?, ?, NOW())
-        ON DUPLICATE KEY UPDATE 
-          device_token = VALUES(device_token),
-          updated_at = NOW()
-      `, [token, user_id]);
-  
-      const action = result.affectedRows === 1 ? 'created' : 'updated';
-      const token_id = result.insertId || result.insertId;
-      
-      console.log(`${action} push token for user:`, user_id);
-      
-      res.status(action === 'created' ? 201 : 200).json({ 
-        message: `Token ${action} successfully`,
-        token_id: token_id,
-        action: action
-      });
-  
-    } catch (error) {
-      console.error('Error processing push token:', error);
-      res.status(500).json({ 
-        error: 'Failed to process token' 
-      });
-    }
-  });
-  */
 
 // Route to send push notifications to specific users
 app.post('/send-notification', authenticateUser, async (req, res) => {
@@ -3493,60 +2270,59 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
     }
 });
 
-
-//Fetch All Assigned Tickets
-app.get("/tickets/assigned-admin", authenticateUser, async (req, res) => {
-    try {
-        console.log("Entering /tickets/assigned-admin route", { 
-            userId: req.userId, 
-            userRole: req.userRole, // Add if available
-            timestamp: new Date().toISOString() 
-        });
+// //Fetch All Assigned Tickets
+// app.get("/tickets/assigned-admin", authenticateUser, async (req, res) => {
+//     try {
+//         console.log("Entering /tickets/assigned-admin route", { 
+//             userId: req.userId, 
+//             userRole: req.userRole, // Add if available
+//             timestamp: new Date().toISOString() 
+//         });
         
 
-        const query = `
-            SELECT
-    t.id,
-    t.code,
-    t.complainant_name,
-    t.date_created,
-    t.date_assigned,
-    t.details,
-    t.status_id,
-    s.status_name AS status,
-    t.assigned_userid
-FROM tickets t
-LEFT JOIN status s ON t.status_id = s.id
-WHERE t.assigned_userid IS NOT NULL
-ORDER BY t.date_created DESC;
-        `;
+//         const query = `
+//             SELECT
+//     t.id,
+//     t.code,
+//     t.complainant_name,
+//     t.date_created,
+//     t.date_assigned,
+//     t.details,
+//     t.status_id,
+//     s.status_name AS status,
+//     t.assigned_userid
+// FROM tickets t
+// LEFT JOIN status s ON t.status_id = s.id
+// WHERE t.assigned_userid IS NOT NULL
+// ORDER BY t.date_created DESC;
+//         `;
         
-        console.log("Executing admin assigned tickets query");
-        const result = await pool.query(query);
+//         console.log("Executing admin assigned tickets query");
+//         const result = await pool.query(query);
         
-        console.log("Query completed", { 
-            rowCount: result.rowCount,
-            sampleData: result.rows.length > 0 ? result.rows[0] : null 
-        });
+//         console.log("Query completed", { 
+//             rowCount: result.rowCount,
+//             sampleData: result.rows.length > 0 ? result.rows[0] : null 
+//         });
 
-        if (result.rows.length === 0) {
-            console.log("No assigned tickets found in system");
-            return res.status(404).json({ message: "No tickets assigned to any user." });
-        }
+//         if (result.rows.length === 0) {
+//             console.log("No assigned tickets found in system");
+//             return res.status(404).json({ message: "No tickets assigned to any user." });
+//         }
 
-        res.json(result.rows);
-    } catch (error) {
-        console.error("Error in /tickets/assigned-admin", {
-            error: error.message,
-            stack: error.stack,
-            query: error.query // If available
-        });
-        res.status(500).json({ 
-            message: "Error fetching assigned tickets",
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
-    }
-});
+//         res.json(result.rows);
+//     } catch (error) {
+//         console.error("Error in /tickets/assigned-admin", {
+//             error: error.message,
+//             stack: error.stack,
+//             query: error.query // If available
+//         });
+//         res.status(500).json({ 
+//             message: "Error fetching assigned tickets",
+//             error: process.env.NODE_ENV === 'development' ? error.message : undefined
+//         });
+//     }
+// });
 
 // Route to assign a ticket to a user
 app.post("/tickets/assign", authenticateUser, async (req, res) => {
@@ -3650,173 +2426,6 @@ app.post("/tickets/assign", authenticateUser, async (req, res) => {
         client.release();
     }
 });
-
-// // Route to assign a ticket to a department
-// app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
-//     const client = await pool.connect();
-//     try {
-//         await client.query('BEGIN');
-        
-//         const assigningUserId = req.userId;
-//         const {
-//             code,
-//             priority_id,
-//             department_id,
-//             date_assigned,
-//             status_id
-//         } = req.body;
-        
-//         if (!code || !priority_id || !department_id) {
-//             await client.query('ROLLBACK');
-//             return res.status(400).json({ 
-//                 message: "Missing required fields: code, priority_id, department_id" 
-//             });
-//         }
-
-//         // Validate department exists
-//         const deptCheck = await client.query(
-//             'SELECT dept_name FROM departments WHERE id = $1',
-//             [department_id]
-//         );
-        
-//         if (deptCheck.rows.length === 0) {
-//             await client.query('ROLLBACK');
-//             return res.status(400).json({ 
-//                 message: "Invalid department_id provided" 
-//             });
-//         }
-        
-//         const departmentName = deptCheck.rows[0].dept_name;
-
-//         // Prepare ticket details for department assignment
-//         const ticketDetails = {
-//             code,
-//             priority_id,
-//             department_id,
-//             date_assigned: date_assigned || new Date().toISOString().split('T')[0],
-//             status_id: status_id || 1, // Assuming 1 is "assigned" status
-//             is_assigned: 1, // Mark as assigned
-//             assigned_userid: null, // No specific user assigned
-//             assigned_groupid: null, // Could be used for department if needed
-//             last_updated_by: assigningUserId,
-//             // Add other required fields that might be needed
-//             region_id: null,
-//             division_id: null,
-//             subject: null,
-//             details: null,
-//             complainant_name: null,
-//             complainant_number: null,
-//             complainant_office: null
-//         };
-
-//         // Use the ticket_update function to update the ticket
-//         const query = `SELECT ticket_update($1::text) AS result;`;
-//         const result = await client.query(query, [JSON.stringify(ticketDetails)]);
-//         const updateResult = result.rows[0].result;
-
-//         if (updateResult === true) {
-//             // Get all users in the assigned department
-//             const departmentUsersQuery = await client.query(
-//                 'SELECT id, first_name, surname, email, phone FROM users WHERE department_id = $1 AND status = $2',
-//                 [department_id, 'active']
-//             );
-            
-//             const departmentUsers = departmentUsersQuery.rows;
-            
-//             if (departmentUsers.length === 0) {
-//                 await client.query('ROLLBACK');
-//                 return res.status(400).json({ 
-//                     message: `No active users found in department: ${departmentName}` 
-//                 });
-//             }
-
-//             // Insert notifications for all department users
-//             const notificationPromises = [];
-//             const userIds = [];
-            
-//             // Notify all users in the department
-//             departmentUsers.forEach(user => {
-//                 notificationPromises.push(
-//                     client.query(
-//                         'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-//                         [user.id, `A ticket ${code} has been assigned to your department (${departmentName}). Please work on it as soon as possible.`]
-//                     )
-//                 );
-//                 userIds.push(user.id);
-//             });
-            
-//             // Notify the assigning user (admin/manager)
-//             notificationPromises.push(
-//                 client.query(
-//                     'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-//                     [assigningUserId, `Successfully assigned ticket ${code} to ${departmentName} department`]
-//                 )
-//             );
-            
-//             // Get ticket creator to notify them too
-//             const creatorQuery = await client.query(
-//                 'SELECT open_id FROM tickets WHERE code = $1',
-//                 [code]
-//             );
-            
-//             if (creatorQuery.rows.length > 0 && creatorQuery.rows[0].open_id) {
-//                 const creatorId = creatorQuery.rows[0].open_id;
-//                 if (creatorId !== assigningUserId && !userIds.includes(creatorId)) {
-//                     notificationPromises.push(
-//                         client.query(
-//                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-//                             [creatorId, `Your ticket ${code} has been assigned to ${departmentName} department for resolution`]
-//                         )
-//                     );
-//                 }
-//             }
-            
-//             // Execute all notification insertions
-//             await Promise.all(notificationPromises);
-            
-//             // Send push notifications to all department users
-//             await notifyUsers(
-//                 userIds, 
-//                 'Department Ticket Assignment', 
-//                 `Ticket ${code} has been assigned to your department (${departmentName}). Please work on it ASAP.`, 
-//                 { ticketId: code, department: departmentName }
-//             );
-            
-//             await client.query('COMMIT');
-            
-//             res.status(200).json({
-//                 message: "Ticket assigned to department successfully",
-//                 ticket: {
-//                     code,
-//                     department_id,
-//                     department_name: departmentName,
-//                     priority_id,
-//                     date_assigned: ticketDetails.date_assigned,
-//                     status_id: ticketDetails.status_id,
-//                     assigned_users_count: departmentUsers.length
-//                 },
-//                 notified_users: departmentUsers.map(user => ({
-//                     id: user.id,
-//                     name: `${user.first_name} ${user.surname}`,
-//                     email: user.email,
-//                     phone: user.phone
-//                 }))
-//             });
-//         } else {
-//             await client.query('ROLLBACK');
-//             return res.status(500).json({ message: "Failed to assign ticket to department" });
-//         }
-//     } catch (error) {
-//         await client.query('ROLLBACK');
-//         console.error("Error assigning ticket to department:", error);
-//         res.status(500).json({
-//             message: "Error assigning ticket to department",
-//             error: error.message
-//         });
-//     } finally {
-//         client.release();
-//     }
-// });
 
 // Route to assign a ticket to a department
 app.post("/tickets/assign-department", authenticateUser, async (req, res) => {
@@ -4134,8 +2743,6 @@ app.post("/verify-current-phone", authenticateUser, async (req, res) => {
     }
 });
 
-
-
 // Verify OTP for phone change verification
 app.post("/verify-phone-otp", authenticateUser, async (req, res) => {
     const { token } = req.body;
@@ -4171,7 +2778,6 @@ app.post("/verify-phone-otp", authenticateUser, async (req, res) => {
         res.status(500).json({ message: "Error verifying phone OTP", error: error.message });
     }
 });
-
 
 app.post("/change-email", authenticateUser, async (req, res) => {
     const { currentEmail } = req.body;
@@ -4212,9 +2818,6 @@ app.post("/change-email", authenticateUser, async (req, res) => {
         res.status(500).json({ message: "Error verifying current email", error: error.message });
     }
 });
-
-
-
 
 // Initiate phone number change
 app.post("/change-phone", authenticateUser, async (req, res) => {
@@ -4259,8 +2862,6 @@ app.post("/change-phone", authenticateUser, async (req, res) => {
         res.status(500).json({ message: "Error initiating phone change", error: error.message });
     }
 });
-
-
 
 // Verify OTP for phone number change
 app.post("/verify-phone-change-otp", authenticateUser, async (req, res) => {
