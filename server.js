@@ -66,213 +66,109 @@ try {
 }
 
 // Function to check for new ticket assignments from web version
-// Function to check for new ticket assignments from web version
+// Simplified version - check each table separately
 const checkForNewAssignments = async () => {
     const client = await pool.connect();
     try {
         console.log('Checking for new ticket assignments...');
         
-        // First, let's check the actual data types in your tables
-        const typeCheckQuery = `
+        // Get all recent assignments first
+        const recentAssignmentsQuery = `
             SELECT 
-                column_name, 
-                data_type 
-            FROM information_schema.columns 
-            WHERE table_name IN ('tickets', 'users', 'notifications') 
-            AND column_name IN ('id', 'assigned_userid', 'open_id', 'user_id', 'department_id')
-            ORDER BY table_name, column_name;
-        `;
-        
-        const typeResult = await client.query(typeCheckQuery);
-        console.log('Column data types:', typeResult.rows);
-
-        // Check for tickets assigned to specific users that haven't been notified
-        const userAssignmentsQuery = `
-            SELECT 
-                t.id,
-                t.code,
-                t.assigned_userid,
-                t.date_assigned,
-                t.subject,
-                t.open_id,
-                u.first_name,
-                u.surname,
-                u.email
-            FROM tickets t
-            LEFT JOIN users u ON CAST(t.assigned_userid AS VARCHAR) = CAST(u.id AS VARCHAR)
-            WHERE t.assigned_userid IS NOT NULL 
-            AND CAST(t.assigned_userid AS INTEGER) > 0
-            AND (
-                t.date_assigned::timestamp > $1
-                OR (
-                    t.date_assigned::timestamp = $1::timestamp 
-                    AND t.id NOT IN (
-                        SELECT DISTINCT CAST(SUBSTRING(message FROM 'ticket ([A-Z0-9]+)') AS VARCHAR)
-                        FROM notifications 
-                        WHERE message LIKE '%assigned to ticket%'
-                        AND created_at > $1
-                    )
-                )
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM notifications n 
-                WHERE CAST(n.user_id AS INTEGER) = CAST(t.assigned_userid AS INTEGER)
-                AND n.message LIKE '%assigned to ticket ' || t.code || '%'
-                AND n.created_at > $1
-            )
-            ORDER BY t.date_assigned DESC;
+                id,
+                code,
+                assigned_userid,
+                department_id,
+                date_assigned,
+                subject,
+                open_id
+            FROM tickets 
+            WHERE (assigned_userid IS NOT NULL OR department_id IS NOT NULL)
+            AND date_assigned::timestamp > $1
+            ORDER BY date_assigned DESC;
         `;
 
-        const userAssignments = await client.query(userAssignmentsQuery, [lastProcessedAssignment]);
-        
-        // Check for tickets assigned to departments
-        const deptAssignmentsQuery = `
-            SELECT DISTINCT
-                t.id,
-                t.code,
-                t.department_id,
-                t.date_assigned,
-                t.subject,
-                t.open_id,
-                d.dept_name,
-                array_agg(CAST(u.id AS VARCHAR)) as user_ids,
-                array_agg(u.first_name || ' ' || u.surname) as user_names
-            FROM tickets t
-            LEFT JOIN departments d ON CAST(t.department_id AS VARCHAR) = CAST(d.id AS VARCHAR)
-            LEFT JOIN users u ON CAST(u.department_id AS VARCHAR) = CAST(t.department_id AS VARCHAR) AND u.status = '1'
-            WHERE t.department_id IS NOT NULL 
-            AND t.assigned_userid IS NULL
-            AND (
-                t.date_assigned::timestamp > $1
-                OR t.date_assigned IS NULL
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM notifications n 
-                WHERE n.message LIKE '%ticket ' || t.code || '%department%'
-                AND n.created_at > $1
-            )
-            GROUP BY t.id, t.code, t.department_id, t.date_assigned, t.subject, t.open_id, d.dept_name
-            ORDER BY t.date_assigned DESC NULLS LAST;
-        `;
+        const recentAssignments = await client.query(recentAssignmentsQuery, [lastProcessedAssignment]);
 
-        const deptAssignments = await client.query(deptAssignmentsQuery, [lastProcessedAssignment]);
-
-        // Process user assignments
-        for (const assignment of userAssignments.rows) {
+        for (const assignment of recentAssignments.rows) {
             try {
-                console.log(`Processing user assignment: ${assignment.code} to user ${assignment.assigned_userid}`);
-                
-                const notificationPromises = [];
-                const pushNotificationUserIds = [];
-
-                // Notify the assigned user
                 if (assignment.assigned_userid) {
-                    notificationPromises.push(
-                        client.query(
+                    // Process user assignment
+                    console.log(`Processing user assignment: ${assignment.code} to user ${assignment.assigned_userid}`);
+                    
+                    // Check if notification already exists
+                    const existingNotification = await client.query(
+                        `SELECT 1 FROM notifications 
+                         WHERE user_id = $1 
+                         AND message LIKE '%assigned to ticket ${assignment.code}%'
+                         AND created_at > $2`,
+                        [assignment.assigned_userid.toString(), lastProcessedAssignment]
+                    );
+
+                    if (existingNotification.rows.length === 0) {
+                        await client.query(
                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
                             [assignment.assigned_userid.toString(), `You have been assigned to ticket ${assignment.code} via web dashboard`]
-                        )
-                    );
-                    pushNotificationUserIds.push(assignment.assigned_userid.toString());
-                }
-
-                // Notify the ticket creator if different from assigned user
-                if (assignment.open_id && assignment.open_id.toString() !== assignment.assigned_userid.toString()) {
-                    notificationPromises.push(
-                        client.query(
-                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [assignment.open_id.toString(), `Your ticket ${assignment.code} has been assigned to ${assignment.first_name} ${assignment.surname} for resolution`]
-                        )
-                    );
-                    if (!pushNotificationUserIds.includes(assignment.open_id.toString())) {
-                        pushNotificationUserIds.push(assignment.open_id.toString());
+                        );
+                        
+                        await notifyUsers(
+                            [assignment.assigned_userid.toString()], 
+                            'Ticket Assignment', 
+                            `Ticket ${assignment.code} has been assigned to you via web dashboard.`, 
+                            { ticketId: assignment.code, assignmentType: 'user' }
+                        );
                     }
                 }
 
-                // Execute all notification insertions
-                await Promise.all(notificationPromises);
-
-                // Send push notifications
-                if (pushNotificationUserIds.length > 0) {
-                    await notifyUsers(
-                        pushNotificationUserIds, 
-                        'Ticket Assignment', 
-                        `Ticket ${assignment.code} has been assigned via web dashboard.`, 
-                        { ticketId: assignment.code, assignmentType: 'user' }
+                if (assignment.department_id) {
+                    // Process department assignment
+                    console.log(`Processing department assignment: ${assignment.code} to department ${assignment.department_id}`);
+                    
+                    // Get department users
+                    const departmentUsers = await client.query(
+                        'SELECT id FROM users WHERE department_id::varchar = $1 AND status = $2',
+                        [assignment.department_id.toString(), '1']
                     );
-                }
 
-                console.log(`Successfully processed user assignment for ticket ${assignment.code}`);
-                
-            } catch (error) {
-                console.error(`Error processing user assignment ${assignment.code}:`, error.message);
-            }
-        }
+                    for (const user of departmentUsers.rows) {
+                        const existingNotification = await client.query(
+                            `SELECT 1 FROM notifications 
+                             WHERE user_id = $1 
+                             AND message LIKE '%assigned to ticket ${assignment.code}%department%'
+                             AND created_at > $2`,
+                            [user.id.toString(), lastProcessedAssignment]
+                        );
 
-        // Process department assignments
-        for (const assignment of deptAssignments.rows) {
-            try {
-                console.log(`Processing department assignment: ${assignment.code} to department ${assignment.dept_name}`);
-                
-                const userIds = assignment.user_ids.filter(id => id !== null);
-                
-                if (userIds.length === 0) {
-                    console.log(`No active users found in department ${assignment.dept_name} for ticket ${assignment.code}`);
-                    continue;
-                }
+                        if (existingNotification.rows.length === 0) {
+                            await client.query(
+                                'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                                [user.id.toString(), `A ticket ${assignment.code} has been assigned to your department via web dashboard`]
+                            );
+                        }
+                    }
 
-                const notificationPromises = [];
-                const pushNotificationUserIds = [];
-
-                // Notify all users in the department
-                userIds.forEach(userId => {
-                    notificationPromises.push(
-                        client.query(
-                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [userId, `A ticket ${assignment.code} has been assigned to your department (${assignment.dept_name}) via web dashboard`]
-                        )
-                    );
-                    pushNotificationUserIds.push(userId);
-                });
-
-                // Notify the ticket creator if different from department users
-                if (assignment.open_id && !userIds.includes(assignment.open_id.toString())) {
-                    notificationPromises.push(
-                        client.query(
-                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [assignment.open_id.toString(), `Your ticket ${assignment.code} has been assigned to ${assignment.dept_name} department for resolution`]
-                        )
-                    );
-                    if (!pushNotificationUserIds.includes(assignment.open_id.toString())) {
-                        pushNotificationUserIds.push(assignment.open_id.toString());
+                    // Send push notifications to all department users
+                    const userIds = departmentUsers.rows.map(user => user.id.toString());
+                    if (userIds.length > 0) {
+                        await notifyUsers(
+                            userIds, 
+                            'Department Ticket Assignment', 
+                            `Ticket ${assignment.code} assigned to your department via web dashboard.`, 
+                            { ticketId: assignment.code, assignmentType: 'department' }
+                        );
                     }
                 }
 
-                // Execute all notification insertions
-                await Promise.all(notificationPromises);
-
-                // Send push notifications
-                if (pushNotificationUserIds.length > 0) {
-                    await notifyUsers(
-                        pushNotificationUserIds, 
-                        'Department Ticket Assignment', 
-                        `Ticket ${assignment.code} assigned to ${assignment.dept_name} department via web dashboard.`, 
-                        { ticketId: assignment.code, assignmentType: 'department', department: assignment.dept_name }
-                    );
-                }
-
-                console.log(`Successfully processed department assignment for ticket ${assignment.code}`);
-                
             } catch (error) {
-                console.error(`Error processing department assignment ${assignment.code}:`, error.message);
+                console.error(`Error processing assignment ${assignment.code}:`, error.message);
             }
         }
 
         // Update last processed timestamp
         lastProcessedAssignment = new Date();
         
-        if (userAssignments.rowCount > 0 || deptAssignments.rowCount > 0) {
-            console.log(`Processed ${userAssignments.rowCount} user assignments and ${deptAssignments.rowCount} department assignments`);
+        if (recentAssignments.rowCount > 0) {
+            console.log(`Processed ${recentAssignments.rowCount} assignments`);
         }
 
     } catch (error) {
@@ -281,7 +177,7 @@ const checkForNewAssignments = async () => {
         client.release();
     }
 };
-
+// Function to check for ticket status updates from web version
 // Function to check for ticket status updates from web version
 const checkForStatusUpdates = async () => {
     const client = await pool.connect();
@@ -310,7 +206,7 @@ const checkForStatusUpdates = async () => {
             AND t.status_id IN (2, 3, 4, 5) -- Pending, On Hold, Solved, Closed
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
-                WHERE (CAST(n.user_id AS INTEGER) = CAST(t.assigned_userid AS INTEGER) OR CAST(n.user_id AS INTEGER) = CAST(t.open_id AS INTEGER))
+                WHERE (n.user_id::integer = t.assigned_userid OR n.user_id::integer = t.open_id)
                 AND n.message LIKE '%ticket ' || t.code || '%status%'
                 AND n.created_at > $1
             )
@@ -376,7 +272,7 @@ const checkForStatusUpdates = async () => {
         }
 
     } catch (error) {
-        console.error('Error checking for status updates:', error.message, error.stack);
+        console.error('Error checking for status updates:', error.message);
     } finally {
         client.release();
     }
