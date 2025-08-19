@@ -90,7 +90,7 @@ const checkForNewAssignments = async () => {
             AND (
                 t.date_assigned::timestamp > $1
                 OR (
-                    t.date_assigned::timestamp = $1::date 
+                    t.date_assigned::timestamp = $1::timestamp 
                     AND t.id NOT IN (
                         SELECT DISTINCT CAST(SUBSTRING(message, 'ticket ([A-Z0-9]+)') AS VARCHAR)
                         FROM notifications 
@@ -101,7 +101,7 @@ const checkForNewAssignments = async () => {
             )
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
-                WHERE n.user_id = t.assigned_userid 
+                WHERE n.user_id = t.assigned_userid::varchar
                 AND n.message LIKE '%assigned to ticket ' || t.code || '%'
                 AND n.created_at > $1
             )
@@ -124,7 +124,7 @@ const checkForNewAssignments = async () => {
                 array_agg(u.first_name || ' ' || u.surname) as user_names
             FROM tickets t
             LEFT JOIN departments d ON t.department_id = d.id
-            LEFT JOIN users u ON u.department_id = t.department_id AND u.status = '1'
+            LEFT JOIN users u ON u.department_id = t.department_id::varchar AND u.status = '1'
             WHERE t.department_id IS NOT NULL 
             AND t.assigned_userid IS NULL
             AND (
@@ -283,8 +283,8 @@ const checkForStatusUpdates = async () => {
                 t.open_id,
                 s.status_name,
                 GREATEST(
-                    COALESCE(EXTRACT(EPOCH FROM t.date_created), 0),
-                    COALESCE(EXTRACT(EPOCH FROM t.date_assigned), 0)
+                    COALESCE(EXTRACT(EPOCH FROM t.date_created::timestamp), 0),
+                    COALESCE(EXTRACT(EPOCH FROM t.date_assigned::timestamp), 0)
                 ) as last_modified_epoch
             FROM tickets t
             LEFT JOIN status s ON t.status_id = s.id
@@ -295,7 +295,7 @@ const checkForStatusUpdates = async () => {
             AND t.status_id IN (2, 3, 4, 5) -- Pending, On Hold, Solved, Closed
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
-                WHERE (n.user_id = t.assigned_userid OR n.user_id = t.open_id)
+                WHERE (n.user_id = t.assigned_userid::varchar OR n.user_id = t.open_id::varchar)
                 AND n.message LIKE '%ticket ' || t.code || '%status%'
                 AND n.created_at > $1
             )
