@@ -26,7 +26,7 @@ app.use(cors());
 // Store tokens in memory (use a database in production)
 let pushTokens = [];
 // Store to track last processed assignment timestamps
-let lastProcessedAssignment = new Date();
+let lastProcessedAssignment = new Date(Date.now() - 5 * 60 * 1000);
  
 const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 admin.initializeApp({
@@ -66,7 +66,6 @@ try {
 }
 
 // Function to check for new ticket assignments from web version
-// Simplified version - check each table separately
 const checkForNewAssignments = async () => {
     const client = await pool.connect();
     try {
@@ -96,13 +95,17 @@ const checkForNewAssignments = async () => {
                     // Process user assignment
                     console.log(`Processing user assignment: ${assignment.code} to user ${assignment.assigned_userid}`);
                     
-                    // Check if notification already exists
+                    // Check if notification already exists with simpler query
                     const existingNotification = await client.query(
                         `SELECT 1 FROM notifications 
                          WHERE user_id = $1 
-                         AND message LIKE '%assigned to ticket ${assignment.code}%'
-                         AND created_at > $2`,
-                        [assignment.assigned_userid.toString(), lastProcessedAssignment]
+                         AND message LIKE $2
+                         AND created_at > $3`,
+                        [
+                            assignment.assigned_userid.toString(), 
+                            `%assigned to ticket ${assignment.code}%`,
+                            lastProcessedAssignment
+                        ]
                     );
 
                     if (existingNotification.rows.length === 0) {
@@ -117,6 +120,7 @@ const checkForNewAssignments = async () => {
                             `Ticket ${assignment.code} has been assigned to you via web dashboard.`, 
                             { ticketId: assignment.code, assignmentType: 'user' }
                         );
+                        console.log(`Created notification for user ${assignment.assigned_userid} for ticket ${assignment.code}`);
                     }
                 }
 
@@ -130,13 +134,20 @@ const checkForNewAssignments = async () => {
                         [assignment.department_id.toString(), '1']
                     );
 
+                    console.log(`Found ${departmentUsers.rows.length} users in department ${assignment.department_id}`);
+
                     for (const user of departmentUsers.rows) {
+                        // Check if notification already exists with simpler query
                         const existingNotification = await client.query(
                             `SELECT 1 FROM notifications 
                              WHERE user_id = $1 
-                             AND message LIKE '%assigned to ticket ${assignment.code}%department%'
-                             AND created_at > $2`,
-                            [user.id.toString(), lastProcessedAssignment]
+                             AND message LIKE $2
+                             AND created_at > $3`,
+                            [
+                                user.id.toString(), 
+                                `%assigned to ticket ${assignment.code}%`,
+                                lastProcessedAssignment
+                            ]
                         );
 
                         if (existingNotification.rows.length === 0) {
@@ -144,6 +155,7 @@ const checkForNewAssignments = async () => {
                                 'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
                                 [user.id.toString(), `A ticket ${assignment.code} has been assigned to your department via web dashboard`]
                             );
+                            console.log(`Created department notification for user ${user.id} for ticket ${assignment.code}`);
                         }
                     }
 
@@ -156,6 +168,7 @@ const checkForNewAssignments = async () => {
                             `Ticket ${assignment.code} assigned to your department via web dashboard.`, 
                             { ticketId: assignment.code, assignmentType: 'department' }
                         );
+                        console.log(`Sent push notifications to ${userIds.length} department users for ticket ${assignment.code}`);
                     }
                 }
 
@@ -177,7 +190,7 @@ const checkForNewAssignments = async () => {
         client.release();
     }
 };
-// Function to check for ticket status updates from web version
+
 // Function to check for ticket status updates from web version
 const checkForStatusUpdates = async () => {
     const client = await pool.connect();
@@ -193,16 +206,15 @@ const checkForStatusUpdates = async () => {
                 t.assigned_userid,
                 t.open_id,
                 s.status_name,
-                GREATEST(
-                    COALESCE(EXTRACT(EPOCH FROM t.date_created::timestamp), 0),
-                    COALESCE(EXTRACT(EPOCH FROM t.date_assigned::timestamp), 0)
-                ) as last_modified_epoch
+                t.date_created,
+                t.date_assigned
             FROM tickets t
             LEFT JOIN status s ON t.status_id = s.id
-            WHERE GREATEST(
-                COALESCE(t.date_created::timestamp, '1970-01-01'::timestamp),
-                COALESCE(t.date_assigned::timestamp, '1970-01-01'::timestamp)
-            ) > $1
+            WHERE (
+                t.date_created::timestamp > $1 
+                OR t.date_assigned::timestamp > $1
+                OR t.date_updated::timestamp > $1
+            )
             AND t.status_id IN (2, 3, 4, 5) -- Pending, On Hold, Solved, Closed
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
@@ -210,7 +222,11 @@ const checkForStatusUpdates = async () => {
                 AND n.message LIKE '%ticket ' || t.code || '%status%'
                 AND n.created_at > $1
             )
-            ORDER BY last_modified_epoch DESC;
+            ORDER BY GREATEST(
+                COALESCE(t.date_created::timestamp, '1970-01-01'::timestamp),
+                COALESCE(t.date_assigned::timestamp, '1970-01-01'::timestamp),
+                COALESCE(t.date_updated::timestamp, '1970-01-01'::timestamp)
+            ) DESC;
         `;
 
         const statusUpdates = await client.query(statusUpdatesQuery, [lastProcessedAssignment]);
@@ -235,7 +251,7 @@ const checkForStatusUpdates = async () => {
                 }
 
                 // Notify ticket creator
-                if (update.open_id && update.open_id.toString() !== update.assigned_userid.toString()) {
+                if (update.open_id && update.open_id.toString() !== (update.assigned_userid ? update.assigned_userid.toString() : '')) {
                     notificationPromises.push(
                         client.query(
                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
