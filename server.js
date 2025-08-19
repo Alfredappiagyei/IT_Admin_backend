@@ -66,6 +66,7 @@ try {
 }
 
 // Function to check for new ticket assignments from web version
+// Function to check for new ticket assignments from web version
 const checkForNewAssignments = async () => {
     const client = await pool.connect();
     try {
@@ -84,7 +85,7 @@ const checkForNewAssignments = async () => {
                 u.surname,
                 u.email
             FROM tickets t
-            LEFT JOIN users u ON t.assigned_userid = u.id
+            LEFT JOIN users u ON t.assigned_userid::varchar = u.id::varchar
             WHERE t.assigned_userid IS NOT NULL 
             AND t.assigned_userid > 0
             AND (
@@ -92,7 +93,7 @@ const checkForNewAssignments = async () => {
                 OR (
                     t.date_assigned::timestamp = $1::timestamp 
                     AND t.id NOT IN (
-                        SELECT DISTINCT CAST(SUBSTRING(message, 'ticket ([A-Z0-9]+)') AS VARCHAR)
+                        SELECT DISTINCT CAST(SUBSTRING(message FROM 'ticket ([A-Z0-9]+)') AS VARCHAR)
                         FROM notifications 
                         WHERE message LIKE '%assigned to ticket%'
                         AND created_at > $1
@@ -101,7 +102,7 @@ const checkForNewAssignments = async () => {
             )
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
-                WHERE n.user_id = t.assigned_userid::varchar
+                WHERE n.user_id::integer = t.assigned_userid
                 AND n.message LIKE '%assigned to ticket ' || t.code || '%'
                 AND n.created_at > $1
             )
@@ -120,11 +121,11 @@ const checkForNewAssignments = async () => {
                 t.subject,
                 t.open_id,
                 d.dept_name,
-                array_agg(u.id) as user_ids,
+                array_agg(u.id::varchar) as user_ids,
                 array_agg(u.first_name || ' ' || u.surname) as user_names
             FROM tickets t
-            LEFT JOIN departments d ON t.department_id = d.id
-            LEFT JOIN users u ON u.department_id = t.department_id::varchar AND u.status = '1'
+            LEFT JOIN departments d ON t.department_id::varchar = d.id::varchar
+            LEFT JOIN users u ON u.department_id::varchar = t.department_id::varchar AND u.status = '1'
             WHERE t.department_id IS NOT NULL 
             AND t.assigned_userid IS NULL
             AND (
@@ -155,22 +156,22 @@ const checkForNewAssignments = async () => {
                     notificationPromises.push(
                         client.query(
                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [assignment.assigned_userid, `You have been assigned to ticket ${assignment.code} via web dashboard`]
+                            [assignment.assigned_userid.toString(), `You have been assigned to ticket ${assignment.code} via web dashboard`]
                         )
                     );
-                    pushNotificationUserIds.push(assignment.assigned_userid);
+                    pushNotificationUserIds.push(assignment.assigned_userid.toString());
                 }
 
                 // Notify the ticket creator if different from assigned user
-                if (assignment.open_id && assignment.open_id !== assignment.assigned_userid) {
+                if (assignment.open_id && assignment.open_id.toString() !== assignment.assigned_userid.toString()) {
                     notificationPromises.push(
                         client.query(
                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [assignment.open_id, `Your ticket ${assignment.code} has been assigned to ${assignment.first_name} ${assignment.surname} for resolution`]
+                            [assignment.open_id.toString(), `Your ticket ${assignment.code} has been assigned to ${assignment.first_name} ${assignment.surname} for resolution`]
                         )
                     );
-                    if (!pushNotificationUserIds.includes(assignment.open_id)) {
-                        pushNotificationUserIds.push(assignment.open_id);
+                    if (!pushNotificationUserIds.includes(assignment.open_id.toString())) {
+                        pushNotificationUserIds.push(assignment.open_id.toString());
                     }
                 }
 
@@ -221,15 +222,15 @@ const checkForNewAssignments = async () => {
                 });
 
                 // Notify the ticket creator if different from department users
-                if (assignment.open_id && !userIds.includes(assignment.open_id)) {
+                if (assignment.open_id && !userIds.includes(assignment.open_id.toString())) {
                     notificationPromises.push(
                         client.query(
                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [assignment.open_id, `Your ticket ${assignment.code} has been assigned to ${assignment.dept_name} department for resolution`]
+                            [assignment.open_id.toString(), `Your ticket ${assignment.code} has been assigned to ${assignment.dept_name} department for resolution`]
                         )
                     );
-                    if (!pushNotificationUserIds.includes(assignment.open_id)) {
-                        pushNotificationUserIds.push(assignment.open_id);
+                    if (!pushNotificationUserIds.includes(assignment.open_id.toString())) {
+                        pushNotificationUserIds.push(assignment.open_id.toString());
                     }
                 }
 
@@ -268,6 +269,7 @@ const checkForNewAssignments = async () => {
 };
 
 // Function to check for ticket status updates from web version
+// Function to check for ticket status updates from web version
 const checkForStatusUpdates = async () => {
     const client = await pool.connect();
     try {
@@ -295,7 +297,7 @@ const checkForStatusUpdates = async () => {
             AND t.status_id IN (2, 3, 4, 5) -- Pending, On Hold, Solved, Closed
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
-                WHERE (n.user_id = t.assigned_userid::varchar OR n.user_id = t.open_id::varchar)
+                WHERE (n.user_id::integer = t.assigned_userid OR n.user_id::integer = t.open_id)
                 AND n.message LIKE '%ticket ' || t.code || '%status%'
                 AND n.created_at > $1
             )
@@ -317,22 +319,22 @@ const checkForStatusUpdates = async () => {
                     notificationPromises.push(
                         client.query(
                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [update.assigned_userid, `Ticket ${update.code} status has been changed to ${update.status_name} via web dashboard`]
+                            [update.assigned_userid.toString(), `Ticket ${update.code} status has been changed to ${update.status_name} via web dashboard`]
                         )
                     );
-                    pushNotificationUserIds.push(update.assigned_userid);
+                    pushNotificationUserIds.push(update.assigned_userid.toString());
                 }
 
                 // Notify ticket creator
-                if (update.open_id && update.open_id !== update.assigned_userid) {
+                if (update.open_id && update.open_id.toString() !== update.assigned_userid.toString()) {
                     notificationPromises.push(
                         client.query(
                             'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
-                            [update.open_id, `Your ticket ${update.code} status has been changed to ${update.status_name}`]
+                            [update.open_id.toString(), `Your ticket ${update.code} status has been changed to ${update.status_name}`]
                         )
                     );
-                    if (!pushNotificationUserIds.includes(update.open_id)) {
-                        pushNotificationUserIds.push(update.open_id);
+                    if (!pushNotificationUserIds.includes(update.open_id.toString())) {
+                        pushNotificationUserIds.push(update.open_id.toString());
                     }
                 }
 
