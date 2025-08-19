@@ -2270,59 +2270,59 @@ app.put('/tickets/:code/status-admin', authenticateUser, async (req, res) => {
     }
 });
 
-// //Fetch All Assigned Tickets
-// app.get("/tickets/assigned-admin", authenticateUser, async (req, res) => {
-//     try {
-//         console.log("Entering /tickets/assigned-admin route", { 
-//             userId: req.userId, 
-//             userRole: req.userRole, // Add if available
-//             timestamp: new Date().toISOString() 
-//         });
+//Fetch All Assigned Tickets
+app.get("/tickets/assigned-admin", authenticateUser, async (req, res) => {
+    try {
+        console.log("Entering /tickets/assigned-admin route", { 
+            userId: req.userId, 
+            userRole: req.userRole, // Add if available
+            timestamp: new Date().toISOString() 
+        });
         
 
-//         const query = `
-//             SELECT
-//     t.id,
-//     t.code,
-//     t.complainant_name,
-//     t.date_created,
-//     t.date_assigned,
-//     t.details,
-//     t.status_id,
-//     s.status_name AS status,
-//     t.assigned_userid
-// FROM tickets t
-// LEFT JOIN status s ON t.status_id = s.id
-// WHERE t.assigned_userid IS NOT NULL
-// ORDER BY t.date_created DESC;
-//         `;
+        const query = `
+            SELECT
+    t.id,
+    t.code,
+    t.complainant_name,
+    t.date_created,
+    t.date_assigned,
+    t.details,
+    t.status_id,
+    s.status_name AS status,
+    t.assigned_userid
+FROM tickets t
+LEFT JOIN status s ON t.status_id = s.id
+WHERE t.assigned_userid IS NOT NULL
+ORDER BY t.date_created DESC;
+        `;
         
-//         console.log("Executing admin assigned tickets query");
-//         const result = await pool.query(query);
+        console.log("Executing admin assigned tickets query");
+        const result = await pool.query(query);
         
-//         console.log("Query completed", { 
-//             rowCount: result.rowCount,
-//             sampleData: result.rows.length > 0 ? result.rows[0] : null 
-//         });
+        console.log("Query completed", { 
+            rowCount: result.rowCount,
+            sampleData: result.rows.length > 0 ? result.rows[0] : null 
+        });
 
-//         if (result.rows.length === 0) {
-//             console.log("No assigned tickets found in system");
-//             return res.status(404).json({ message: "No tickets assigned to any user." });
-//         }
+        if (result.rows.length === 0) {
+            console.log("No assigned tickets found in system");
+            return res.status(404).json({ message: "No tickets assigned to any user." });
+        }
 
-//         res.json(result.rows);
-//     } catch (error) {
-//         console.error("Error in /tickets/assigned-admin", {
-//             error: error.message,
-//             stack: error.stack,
-//             query: error.query // If available
-//         });
-//         res.status(500).json({ 
-//             message: "Error fetching assigned tickets",
-//             error: process.env.NODE_ENV === 'development' ? error.message : undefined
-//         });
-//     }
-// });
+        res.json(result.rows);
+    } catch (error) {
+        console.error("Error in /tickets/assigned-admin", {
+            error: error.message,
+            stack: error.stack,
+            query: error.query // If available
+        });
+        res.status(500).json({ 
+            message: "Error fetching assigned tickets",
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+});
 
 // Route to assign a ticket to a user
 app.post("/tickets/assign", authenticateUser, async (req, res) => {
