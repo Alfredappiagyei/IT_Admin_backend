@@ -72,6 +72,20 @@ const checkForNewAssignments = async () => {
     try {
         console.log('Checking for new ticket assignments...');
         
+        // First, let's check the actual data types in your tables
+        const typeCheckQuery = `
+            SELECT 
+                column_name, 
+                data_type 
+            FROM information_schema.columns 
+            WHERE table_name IN ('tickets', 'users', 'notifications') 
+            AND column_name IN ('id', 'assigned_userid', 'open_id', 'user_id', 'department_id')
+            ORDER BY table_name, column_name;
+        `;
+        
+        const typeResult = await client.query(typeCheckQuery);
+        console.log('Column data types:', typeResult.rows);
+
         // Check for tickets assigned to specific users that haven't been notified
         const userAssignmentsQuery = `
             SELECT 
@@ -85,9 +99,9 @@ const checkForNewAssignments = async () => {
                 u.surname,
                 u.email
             FROM tickets t
-            LEFT JOIN users u ON t.assigned_userid::varchar = u.id::varchar
+            LEFT JOIN users u ON CAST(t.assigned_userid AS VARCHAR) = CAST(u.id AS VARCHAR)
             WHERE t.assigned_userid IS NOT NULL 
-            AND t.assigned_userid > 0
+            AND CAST(t.assigned_userid AS INTEGER) > 0
             AND (
                 t.date_assigned::timestamp > $1
                 OR (
@@ -102,7 +116,7 @@ const checkForNewAssignments = async () => {
             )
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
-                WHERE n.user_id::integer = t.assigned_userid
+                WHERE CAST(n.user_id AS INTEGER) = CAST(t.assigned_userid AS INTEGER)
                 AND n.message LIKE '%assigned to ticket ' || t.code || '%'
                 AND n.created_at > $1
             )
@@ -121,11 +135,11 @@ const checkForNewAssignments = async () => {
                 t.subject,
                 t.open_id,
                 d.dept_name,
-                array_agg(u.id::varchar) as user_ids,
+                array_agg(CAST(u.id AS VARCHAR)) as user_ids,
                 array_agg(u.first_name || ' ' || u.surname) as user_names
             FROM tickets t
-            LEFT JOIN departments d ON t.department_id::varchar = d.id::varchar
-            LEFT JOIN users u ON u.department_id::varchar = t.department_id::varchar AND u.status = '1'
+            LEFT JOIN departments d ON CAST(t.department_id AS VARCHAR) = CAST(d.id AS VARCHAR)
+            LEFT JOIN users u ON CAST(u.department_id AS VARCHAR) = CAST(t.department_id AS VARCHAR) AND u.status = '1'
             WHERE t.department_id IS NOT NULL 
             AND t.assigned_userid IS NULL
             AND (
@@ -262,13 +276,12 @@ const checkForNewAssignments = async () => {
         }
 
     } catch (error) {
-        console.error('Error checking for new assignments:', error.message);
+        console.error('Error checking for new assignments:', error.message, error.stack);
     } finally {
         client.release();
     }
 };
 
-// Function to check for ticket status updates from web version
 // Function to check for ticket status updates from web version
 const checkForStatusUpdates = async () => {
     const client = await pool.connect();
@@ -297,7 +310,7 @@ const checkForStatusUpdates = async () => {
             AND t.status_id IN (2, 3, 4, 5) -- Pending, On Hold, Solved, Closed
             AND NOT EXISTS (
                 SELECT 1 FROM notifications n 
-                WHERE (n.user_id::integer = t.assigned_userid OR n.user_id::integer = t.open_id)
+                WHERE (CAST(n.user_id AS INTEGER) = CAST(t.assigned_userid AS INTEGER) OR CAST(n.user_id AS INTEGER) = CAST(t.open_id AS INTEGER))
                 AND n.message LIKE '%ticket ' || t.code || '%status%'
                 AND n.created_at > $1
             )
@@ -363,7 +376,7 @@ const checkForStatusUpdates = async () => {
         }
 
     } catch (error) {
-        console.error('Error checking for status updates:', error.message);
+        console.error('Error checking for status updates:', error.message, error.stack);
     } finally {
         client.release();
     }
