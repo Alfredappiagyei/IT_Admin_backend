@@ -213,7 +213,6 @@ const checkForStatusUpdates = async () => {
             WHERE (
                 t.date_created::timestamp > $1 
                 OR t.date_assigned::timestamp > $1
-                OR t.date_updated::timestamp > $1
             )
             AND t.status_id IN (2, 3, 4, 5) -- Pending, On Hold, Solved, Closed
             AND NOT EXISTS (
@@ -224,8 +223,7 @@ const checkForStatusUpdates = async () => {
             )
             ORDER BY GREATEST(
                 COALESCE(t.date_created::timestamp, '1970-01-01'::timestamp),
-                COALESCE(t.date_assigned::timestamp, '1970-01-01'::timestamp),
-                COALESCE(t.date_updated::timestamp, '1970-01-01'::timestamp)
+                COALESCE(t.date_assigned::timestamp, '1970-01-01'::timestamp)
             ) DESC;
         `;
 
