@@ -25,6 +25,8 @@ app.use(cors());
 
 // Store tokens in memory (use a database in production)
 let pushTokens = [];
+// Store to track last processed assignment timestamps
+let lastProcessedAssignment = new Date();
  
 const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 admin.initializeApp({
@@ -62,6 +64,329 @@ try {
     console.error("Failed to initialize Resend:", error.message);
     process.exit(1); // Exit if Resend initialization fails
 }
+
+// Function to check for new ticket assignments from web version
+const checkForNewAssignments = async () => {
+    const client = await pool.connect();
+    try {
+        console.log('Checking for new ticket assignments...');
+        
+        // Check for tickets assigned to specific users that haven't been notified
+        const userAssignmentsQuery = `
+            SELECT 
+                t.id,
+                t.code,
+                t.assigned_userid,
+                t.date_assigned,
+                t.subject,
+                t.open_id,
+                u.first_name,
+                u.surname,
+                u.email
+            FROM tickets t
+            LEFT JOIN users u ON t.assigned_userid = u.id
+            WHERE t.assigned_userid IS NOT NULL 
+            AND t.assigned_userid > 0
+            AND (
+                t.date_assigned::timestamp > $1
+                OR (
+                    t.date_assigned::timestamp = $1::date 
+                    AND t.id NOT IN (
+                        SELECT DISTINCT CAST(SUBSTRING(message, 'ticket ([A-Z0-9]+)') AS VARCHAR)
+                        FROM notifications 
+                        WHERE message LIKE '%assigned to ticket%'
+                        AND created_at > $1
+                    )
+                )
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM notifications n 
+                WHERE n.user_id = t.assigned_userid 
+                AND n.message LIKE '%assigned to ticket ' || t.code || '%'
+                AND n.created_at > $1
+            )
+            ORDER BY t.date_assigned DESC;
+        `;
+
+        const userAssignments = await client.query(userAssignmentsQuery, [lastProcessedAssignment]);
+        
+        // Check for tickets assigned to departments
+        const deptAssignmentsQuery = `
+            SELECT DISTINCT
+                t.id,
+                t.code,
+                t.department_id,
+                t.date_assigned,
+                t.subject,
+                t.open_id,
+                d.dept_name,
+                array_agg(u.id) as user_ids,
+                array_agg(u.first_name || ' ' || u.surname) as user_names
+            FROM tickets t
+            LEFT JOIN departments d ON t.department_id = d.id
+            LEFT JOIN users u ON u.department_id = t.department_id AND u.status = '1'
+            WHERE t.department_id IS NOT NULL 
+            AND t.assigned_userid IS NULL
+            AND (
+                t.date_assigned::timestamp > $1
+                OR t.date_assigned IS NULL
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM notifications n 
+                WHERE n.message LIKE '%ticket ' || t.code || '%department%'
+                AND n.created_at > $1
+            )
+            GROUP BY t.id, t.code, t.department_id, t.date_assigned, t.subject, t.open_id, d.dept_name
+            ORDER BY t.date_assigned DESC NULLS LAST;
+        `;
+
+        const deptAssignments = await client.query(deptAssignmentsQuery, [lastProcessedAssignment]);
+
+        // Process user assignments
+        for (const assignment of userAssignments.rows) {
+            try {
+                console.log(`Processing user assignment: ${assignment.code} to user ${assignment.assigned_userid}`);
+                
+                const notificationPromises = [];
+                const pushNotificationUserIds = [];
+
+                // Notify the assigned user
+                if (assignment.assigned_userid) {
+                    notificationPromises.push(
+                        client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [assignment.assigned_userid, `You have been assigned to ticket ${assignment.code} via web dashboard`]
+                        )
+                    );
+                    pushNotificationUserIds.push(assignment.assigned_userid);
+                }
+
+                // Notify the ticket creator if different from assigned user
+                if (assignment.open_id && assignment.open_id !== assignment.assigned_userid) {
+                    notificationPromises.push(
+                        client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [assignment.open_id, `Your ticket ${assignment.code} has been assigned to ${assignment.first_name} ${assignment.surname} for resolution`]
+                        )
+                    );
+                    if (!pushNotificationUserIds.includes(assignment.open_id)) {
+                        pushNotificationUserIds.push(assignment.open_id);
+                    }
+                }
+
+                // Execute all notification insertions
+                await Promise.all(notificationPromises);
+
+                // Send push notifications
+                if (pushNotificationUserIds.length > 0) {
+                    await notifyUsers(
+                        pushNotificationUserIds, 
+                        'Ticket Assignment', 
+                        `Ticket ${assignment.code} has been assigned via web dashboard.`, 
+                        { ticketId: assignment.code, assignmentType: 'user' }
+                    );
+                }
+
+                console.log(`Successfully processed user assignment for ticket ${assignment.code}`);
+                
+            } catch (error) {
+                console.error(`Error processing user assignment ${assignment.code}:`, error.message);
+            }
+        }
+
+        // Process department assignments
+        for (const assignment of deptAssignments.rows) {
+            try {
+                console.log(`Processing department assignment: ${assignment.code} to department ${assignment.dept_name}`);
+                
+                const userIds = assignment.user_ids.filter(id => id !== null);
+                
+                if (userIds.length === 0) {
+                    console.log(`No active users found in department ${assignment.dept_name} for ticket ${assignment.code}`);
+                    continue;
+                }
+
+                const notificationPromises = [];
+                const pushNotificationUserIds = [];
+
+                // Notify all users in the department
+                userIds.forEach(userId => {
+                    notificationPromises.push(
+                        client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [userId, `A ticket ${assignment.code} has been assigned to your department (${assignment.dept_name}) via web dashboard`]
+                        )
+                    );
+                    pushNotificationUserIds.push(userId);
+                });
+
+                // Notify the ticket creator if different from department users
+                if (assignment.open_id && !userIds.includes(assignment.open_id)) {
+                    notificationPromises.push(
+                        client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [assignment.open_id, `Your ticket ${assignment.code} has been assigned to ${assignment.dept_name} department for resolution`]
+                        )
+                    );
+                    if (!pushNotificationUserIds.includes(assignment.open_id)) {
+                        pushNotificationUserIds.push(assignment.open_id);
+                    }
+                }
+
+                // Execute all notification insertions
+                await Promise.all(notificationPromises);
+
+                // Send push notifications
+                if (pushNotificationUserIds.length > 0) {
+                    await notifyUsers(
+                        pushNotificationUserIds, 
+                        'Department Ticket Assignment', 
+                        `Ticket ${assignment.code} assigned to ${assignment.dept_name} department via web dashboard.`, 
+                        { ticketId: assignment.code, assignmentType: 'department', department: assignment.dept_name }
+                    );
+                }
+
+                console.log(`Successfully processed department assignment for ticket ${assignment.code}`);
+                
+            } catch (error) {
+                console.error(`Error processing department assignment ${assignment.code}:`, error.message);
+            }
+        }
+
+        // Update last processed timestamp
+        lastProcessedAssignment = new Date();
+        
+        if (userAssignments.rowCount > 0 || deptAssignments.rowCount > 0) {
+            console.log(`Processed ${userAssignments.rowCount} user assignments and ${deptAssignments.rowCount} department assignments`);
+        }
+
+    } catch (error) {
+        console.error('Error checking for new assignments:', error.message);
+    } finally {
+        client.release();
+    }
+};
+
+// Function to check for ticket status updates from web version
+const checkForStatusUpdates = async () => {
+    const client = await pool.connect();
+    try {
+        console.log('Checking for ticket status updates...');
+        
+        // Check for status changes that haven't been notified
+        const statusUpdatesQuery = `
+            SELECT 
+                t.id,
+                t.code,
+                t.status_id,
+                t.assigned_userid,
+                t.open_id,
+                s.status_name,
+                GREATEST(
+                    COALESCE(EXTRACT(EPOCH FROM t.date_created), 0),
+                    COALESCE(EXTRACT(EPOCH FROM t.date_assigned), 0)
+                ) as last_modified_epoch
+            FROM tickets t
+            LEFT JOIN status s ON t.status_id = s.id
+            WHERE GREATEST(
+                COALESCE(t.date_created::timestamp, '1970-01-01'::timestamp),
+                COALESCE(t.date_assigned::timestamp, '1970-01-01'::timestamp)
+            ) > $1
+            AND t.status_id IN (2, 3, 4, 5) -- Pending, On Hold, Solved, Closed
+            AND NOT EXISTS (
+                SELECT 1 FROM notifications n 
+                WHERE (n.user_id = t.assigned_userid OR n.user_id = t.open_id)
+                AND n.message LIKE '%ticket ' || t.code || '%status%'
+                AND n.created_at > $1
+            )
+            ORDER BY last_modified_epoch DESC;
+        `;
+
+        const statusUpdates = await client.query(statusUpdatesQuery, [lastProcessedAssignment]);
+
+        // Process status updates
+        for (const update of statusUpdates.rows) {
+            try {
+                console.log(`Processing status update: ${update.code} to ${update.status_name}`);
+                
+                const notificationPromises = [];
+                const pushNotificationUserIds = [];
+
+                // Notify assigned user
+                if (update.assigned_userid) {
+                    notificationPromises.push(
+                        client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [update.assigned_userid, `Ticket ${update.code} status has been changed to ${update.status_name} via web dashboard`]
+                        )
+                    );
+                    pushNotificationUserIds.push(update.assigned_userid);
+                }
+
+                // Notify ticket creator
+                if (update.open_id && update.open_id !== update.assigned_userid) {
+                    notificationPromises.push(
+                        client.query(
+                            'INSERT INTO notifications (user_id, message, created_at) VALUES ($1, $2, NOW())',
+                            [update.open_id, `Your ticket ${update.code} status has been changed to ${update.status_name}`]
+                        )
+                    );
+                    if (!pushNotificationUserIds.includes(update.open_id)) {
+                        pushNotificationUserIds.push(update.open_id);
+                    }
+                }
+
+                // Execute all notification insertions
+                await Promise.all(notificationPromises);
+
+                // Send push notifications
+                if (pushNotificationUserIds.length > 0) {
+                    await notifyUsers(
+                        pushNotificationUserIds, 
+                        'Ticket Status Update', 
+                        `Ticket ${update.code} status changed to ${update.status_name}.`, 
+                        { ticketId: update.code, status: update.status_name, source: 'web_dashboard' }
+                    );
+                }
+
+                console.log(`Successfully processed status update for ticket ${update.code}`);
+                
+            } catch (error) {
+                console.error(`Error processing status update ${update.code}:`, error.message);
+            }
+        }
+
+        if (statusUpdates.rowCount > 0) {
+            console.log(`Processed ${statusUpdates.rowCount} status updates`);
+        }
+
+    } catch (error) {
+        console.error('Error checking for status updates:', error.message);
+    } finally {
+        client.release();
+    }
+};
+
+// Start the polling mechanism - check every 30 seconds
+const startAssignmentMonitoring = () => {
+    console.log('Starting assignment monitoring service...');
+    
+    // Initial delay to allow server to fully start
+    setTimeout(() => {
+        // Run immediately on start
+        checkForNewAssignments();
+        checkForStatusUpdates();
+        
+        // Then run every 30 seconds
+        setInterval(() => {
+            checkForNewAssignments();
+            checkForStatusUpdates();
+        }, 30000); // 30 seconds
+        
+        console.log('Assignment monitoring service started successfully');
+    }, 5000); // 5 second initial delay
+};
+
 
 // Enable CORS for all origins and specify allowed methods and headers
 app.use(cors({ origin: "*", methods: "GET,POST,PUT,DELETE", allowedHeaders: "Content-Type,Authorization" }));
@@ -303,7 +628,34 @@ app.post("/login", async (req, res) => {
     }
 });
 
+// Add this route to manually trigger assignment check (useful for testing)
+app.post('/check-assignments', authenticateUser, async (req, res) => {
+    try {
+        console.log('Manual assignment check triggered by user:', req.userId);
+        await checkForNewAssignments();
+        await checkForStatusUpdates();
+        res.json({ 
+            message: 'Assignment check completed successfully',
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('Manual assignment check failed:', error.message);
+        res.status(500).json({ 
+            message: 'Assignment check failed', 
+            error: error.message 
+        });
+    }
+});
 
+// Add this route to get monitoring status
+app.get('/monitoring-status', authenticateUser, (req, res) => {
+    res.json({
+        status: 'active',
+        lastProcessedAssignment: lastProcessedAssignment,
+        monitoringInterval: '30 seconds',
+        startTime: new Date().toISOString()
+    });
+});
 
 // Route to fetch user profile (requires authentication)
 app.get("/user/profile", authenticateUser, async (req, res) => {
@@ -3580,6 +3932,8 @@ app.use((err, req, res, next) => {
 
 // Start server on specified port (default 3001)
 const port = process.env.PORT || 3001;
+// Add this line near the end of your file, just before app.listen()
+startAssignmentMonitoring();
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
 });
