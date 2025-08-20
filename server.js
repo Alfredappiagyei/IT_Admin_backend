@@ -632,6 +632,7 @@ app.get("/user/tickets", authenticateUser, async (req, res) => {
                 t.id,
                 t.code,
                 t.complainant_name,
+                t.complainant_office,
                 t.date_created,
                 t.date_assigned,
                 t.details,
@@ -661,7 +662,15 @@ app.get("/tickets/details/:id", authenticateUser, async (req, res) => {
         const { id } = req.params;
         const query = `
             SELECT 
-                t.id, t.code, t.subject, t.details, t.status_id, s.status_name
+                t.id, 
+                t.code, 
+                t.subject, 
+                t.details, 
+                t.complainant_name,
+                t.complainant_office,
+                t.complainant_number,
+                t.status_id, 
+                s.status_name
             FROM tickets t
             LEFT JOIN status s ON t.status_id = s.id
             WHERE t.id = $1;
@@ -685,7 +694,14 @@ app.get("/tickets/by-department/:deptId", authenticateUser, async (req, res) => 
         const { deptId } = req.params;
         const query = `
             SELECT 
-                t.id, t.code, t.subject, t.date_created, t.status_id, s.status_name
+                t.id, 
+                t.code, 
+                t.subject, 
+                t.date_created, 
+                t.complainant_name,
+                t.complainant_office,
+                t.status_id, 
+                s.status_name
             FROM tickets t
             LEFT JOIN status s ON t.status_id = s.id
             WHERE t.department_id = $1;
@@ -813,7 +829,8 @@ app.get("/user/tickets/created", authenticateUser, async (req, res) => {
     try {
         const userId = req.userId;
         console.log("Fetching user details and created tickets", { userId });
-// fetch for first_name and last_name
+        
+        // fetch for first_name and last_name
         const userQuery = `
             SELECT first_name, surname 
             FROM users 
@@ -827,13 +844,15 @@ app.get("/user/tickets/created", authenticateUser, async (req, res) => {
         }
 
         const { first_name, surname } = userResult.rows[0];
-        const creatorName = `${first_name} ${surname}`; // e.g., "John Doe"
-// check for user_id = open_id
+        const creatorName = `${first_name} ${surname}`;
+        
+        // check for user_id = open_id
         const ticketsQuery = `
             SELECT
                 t.id,
                 t.code,
                 t.complainant_name,
+                t.complainant_office,
                 t.date_created,
                 t.date_assigned,
                 t.details,
@@ -875,6 +894,7 @@ app.get("/user/tickets/assigned", authenticateUser, async (req, res) => {
                 t.id,
                 t.code,
                 t.complainant_name,
+                t.complainant_office,
                 t.date_created,
                 t.date_assigned,
                 t.details,
@@ -939,6 +959,7 @@ app.get("/tickets/department", authenticateUser, async (req, res) => {
                 t.details,
                 t.date_created,
                 t.complainant_name,
+                t.complainant_office,
                 t.status_id,
                 t.priority_id,
                 t.department_id,
@@ -987,6 +1008,7 @@ app.get("/tickets/department", authenticateUser, async (req, res) => {
             details: ticket.details || 'No Details',
             date_created: ticket.date_created,
             complainant_name: ticket.complainant_name || 'Unknown',
+            complainant_office: ticket.complainant_office || 'Unknown Office',
             status: ticket.status || 'Unknown',
             priority: ticket.priority || 'Unknown',
             department_name: ticket.department_name || 'Unknown Department',
@@ -2167,6 +2189,7 @@ app.get("/helpdesk", authenticateUser, async (req, res) => {
             id: ticket.id,
             code: ticket.code || 'N/A',
             complainant_name: ticket.complainant_name || 'Unknown',
+            complainant_office: ticket.complainant_office || 'N/A',
             date_created: ticket.date_created || null,
             status: ticket.status_id === 2 ? 'Pending' :
                     ticket.status_id === 3 ? 'On Hold' :
@@ -2175,7 +2198,6 @@ app.get("/helpdesk", authenticateUser, async (req, res) => {
             subject: ticket.subject || 'N/A',
             details: ticket.details || 'N/A',
             complainant_number: ticket.complainant_number || 'N/A',
-            complainant_office: ticket.complainant_office || 'N/A',
             date_assigned: ticket.date_assigned || null,
             department: ticket.department_id === 1 ? 'Hardware' :
                         ticket.department_id === 2 ? 'Networking' :
@@ -2556,22 +2578,22 @@ app.get("/tickets/assigned-admin", authenticateUser, async (req, res) => {
             timestamp: new Date().toISOString() 
         });
         
-
         const query = `
             SELECT
-    t.id,
-    t.code,
-    t.complainant_name,
-    t.date_created,
-    t.date_assigned,
-    t.details,
-    t.status_id,
-    s.status_name AS status,
-    t.assigned_userid
-FROM tickets t
-LEFT JOIN status s ON t.status_id = s.id
-WHERE t.assigned_userid IS NOT NULL
-ORDER BY t.date_created DESC;
+                t.id,
+                t.code,
+                t.complainant_name,
+                t.complainant_office,
+                t.date_created,
+                t.date_assigned,
+                t.details,
+                t.status_id,
+                s.status_name AS status,
+                t.assigned_userid
+            FROM tickets t
+            LEFT JOIN status s ON t.status_id = s.id
+            WHERE t.assigned_userid IS NOT NULL
+            ORDER BY t.date_created DESC;
         `;
         
         console.log("Executing admin assigned tickets query");
@@ -2600,6 +2622,7 @@ ORDER BY t.date_created DESC;
         });
     }
 });
+
 
 // Route to assign a ticket to a user
 app.post("/tickets/assign", authenticateUser, async (req, res) => {
